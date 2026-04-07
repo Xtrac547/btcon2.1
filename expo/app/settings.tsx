@@ -197,7 +197,7 @@ export default function SettingsScreen() {
                 >
                   <View style={styles.authOptionContent}>
                     <AlertCircle color="#FF4444" size={20} strokeWidth={2} />
-                    <Text style={styles.dangerButtonText}>Désactiver l'authentification</Text>
+                    <Text style={styles.dangerButtonText}>Désactiver l&apos;authentification</Text>
                   </View>
                 </Pressable>
               )}

@@ -1,11 +1,11 @@
+import { useState, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, Platform, Image, ScrollView, PanResponder, Dimensions } from 'react-native';
-
-const coinImage = require('../assets/images/btcon-icon.png');
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, RotateCcw, ChevronDown, History } from 'lucide-react-native';
-import { useState, useRef, useCallback } from 'react';
 import * as Haptics from 'expo-haptics';
+
+const coinImage = require('../assets/images/btcon-icon.png');
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 
@@ -23,7 +23,7 @@ export default function CoinFlipScreen() {
   const [coinFlipping, setCoinFlipping] = useState(false);
   const [coinResult, setCoinResult] = useState<'heads' | 'tails' | 'fallen' | null>(null);
   const [showCoin, setShowCoin] = useState(true);
-  const [_hasFlippedOnce, setHasFlippedOnce] = useState(false);
+  const [, setHasFlippedOnce] = useState<boolean>(false);
   const [history, setHistory] = useState<FlipRecord[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const coinRotation = useRef(new Animated.Value(0)).current;
@@ -327,7 +327,7 @@ export default function CoinFlipScreen() {
         {history.length > 0 && !historyOpen && (
           <View style={styles.swipeHint}>
             <ChevronDown color="rgba(255, 140, 0, 0.5)" size={18} />
-            <Text style={styles.swipeHintText}>Glissez vers le bas pour l'historique</Text>
+            <Text style={styles.swipeHintText}>Glissez vers le bas pour l&apos;historique</Text>
           </View>
         )}
       </View>
