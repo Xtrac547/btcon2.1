@@ -1,16 +1,14 @@
 import '@/utils/shim';
-import { useState, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, ActivityIndicator, ScrollView, useWindowDimensions, Platform, Animated, Easing, Image } from 'react-native';
-import { Coins } from 'lucide-react-native';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, ActivityIndicator, ScrollView, useWindowDimensions, Platform } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useWallet } from '@/contexts/WalletContext';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { useDeveloperHierarchy } from '@/contexts/DeveloperHierarchyContext';
 import { ArrowLeft, Send, X, Camera } from 'lucide-react-native';
-const coinImage = require('../assets/images/btcon-icon.png');
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useResponsive } from '@/utils/responsive';
-import * as Haptics from 'expo-haptics';
+import { btconToEuro, useBtcPrice } from '@/services/btcPrice';
 
 
 export default function SendScreen() {
@@ -19,7 +17,7 @@ export default function SendScreen() {
     preselectedAmount?: string;
     address?: string;
   }>();
-  const { balance, signAndBroadcastTransaction, esploraService, address } = useWallet();
+  const { balance, signAndBroadcastTransaction, estimateTransactionCosts, esploraService, address } = useWallet();
   const { notifyTransaction, notifyPendingTransaction } = useNotifications();
   const { isDeveloper } = useDeveloperHierarchy();
   const { width } = useWindowDimensions();
@@ -30,58 +28,46 @@ export default function SendScreen() {
   const [showCamera, setShowCamera] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [hasScanned, setHasScanned] = useState(false);
-  const [amountBtcon, setAmountBtcon] = useState(params.preselectedAmount ? parseInt(params.preselectedAmount, 10) : 0);
-
-  const [feeFlipState, setFeeFlipState] = useState<'idle' | 'choosing' | 'flipping' | 'won' | 'lost'>('idle');
-  const [feeFlipChoice, setFeeFlipChoice] = useState<'heads' | 'tails' | null>(null);
-  const [feeFlipResult, setFeeFlipResult] = useState<'heads' | 'tails' | null>(null);
-  const [feesWaived, setFeesWaived] = useState(false);
-  const flipAnim = useRef(new Animated.Value(0)).current;
-
-
+  const [amountBtcon, setAmountBtcon] = useState<number>(params.preselectedAmount ? parseInt(params.preselectedAmount, 10) : 0);
+  const [feeDetails, setFeeDetails] = useState<{
+    networkFee: number;
+    adminFee: number;
+    totalFee: number;
+    totalDebit: number;
+    feeRate: number;
+  } | null>(null);
+  const [isEstimatingFees, setIsEstimatingFees] = useState(false);
+  const { btcPrice } = useBtcPrice();
 
   const totalAmount = amountBtcon;
 
-  const startFeeFlip = () => {
-    setFeeFlipState('choosing');
-    setFeeFlipChoice(null);
-    setFeeFlipResult(null);
-  };
-
-  const doFeeFlip = (choice: 'heads' | 'tails') => {
-    setFeeFlipChoice(choice);
-    setFeeFlipState('flipping');
-    flipAnim.setValue(0);
-
-    if (Platform.OS !== 'web') {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
-
-    const result: 'heads' | 'tails' = Math.random() < 0.5 ? 'heads' : 'tails';
-
-    Animated.timing(flipAnim, {
-      toValue: 1,
-      duration: 1800,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: true,
-    }).start(() => {
-      setFeeFlipResult(result);
-      const won = result === choice;
-      setFeesWaived(won);
-      setFeeFlipState(won ? 'won' : 'lost');
-      if (Platform.OS !== 'web') {
-        void Haptics.notificationAsync(
-          won ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Error
-        );
+  useEffect(() => {
+    const updateFees = async () => {
+      if (totalAmount <= 0 || !address) {
+        setFeeDetails(null);
+        return;
       }
-    });
-  };
 
+      setIsEstimatingFees(true);
+      try {
+        const estimate = await estimateTransactionCosts(Math.floor(totalAmount));
+        setFeeDetails({
+          networkFee: estimate.networkFee,
+          adminFee: estimate.adminFee,
+          totalFee: estimate.totalFee,
+          totalDebit: estimate.totalDebit,
+          feeRate: estimate.feeRate,
+        });
+      } catch (error) {
+        console.error('Error estimating fees:', error);
+        setFeeDetails(null);
+      } finally {
+        setIsEstimatingFees(false);
+      }
+    };
 
-
-
-
-
+    void updateFees();
+  }, [totalAmount, address, estimateTransactionCosts]);
 
   const handleSend = async () => {
     const input = toAddress.trim();
@@ -115,18 +101,32 @@ export default function SendScreen() {
       return;
     }
 
-    const totalFeesInSats = isDevAddress ? 0 : (feesWaived ? 0 : 500);
-    const totalFeesInBtcon = isDevAddress ? 0 : (feesWaived ? 0 : 500);
+    let currentFeeDetails = feeDetails;
 
-    const feeMessage = isDevAddress 
-      ? '\n\n✨ Mode développeur : Frais gratuits !' 
-      : feesWaived
-        ? '\n\n🎉 Pile ou Face gagné — le receveur paye les frais !'
-        : `\n\nFrais de réseau: ${Math.floor(totalFeesInBtcon).toLocaleString()} Btcon`;
-    
+    if (!currentFeeDetails) {
+      try {
+        const estimate = await estimateTransactionCosts(satsAmount);
+        currentFeeDetails = {
+          networkFee: estimate.networkFee,
+          adminFee: estimate.adminFee,
+          totalFee: estimate.totalFee,
+          totalDebit: estimate.totalDebit,
+          feeRate: estimate.feeRate,
+        };
+        setFeeDetails(currentFeeDetails);
+      } catch (error) {
+        Alert.alert('Error', error instanceof Error ? error.message : 'Impossible de calculer les frais');
+        return;
+      }
+    }
+
+    const feeMessage = isDevAddress
+      ? '\n\n✨ Mode développeur : bonus admin désactivé'
+      : `\n\nFrais de transaction = ${currentFeeDetails.networkFee.toLocaleString()} Btcon = ${btconToEuro(currentFeeDetails.networkFee, btcPrice)}€\nBtcon = ${currentFeeDetails.adminFee.toLocaleString()} = ${btconToEuro(currentFeeDetails.adminFee, btcPrice)}€`;
+
     Alert.alert(
       'Confirmer la transaction',
-      `Montant: ${Math.floor(btconAmount).toLocaleString()} Btcon\n\nDestinataire: ${resolvedAddress.slice(0, 10) + '...'}${feeMessage}\n\nTotal à déduire: ${(satsAmount + totalFeesInSats).toLocaleString()} Btcon`,
+      `Montant: ${Math.floor(btconAmount).toLocaleString()} Btcon\n\nDestinataire: ${resolvedAddress.slice(0, 10) + '...'}${feeMessage}\n\nTotal à déduire: ${currentFeeDetails.totalDebit.toLocaleString()} Btcon`,
       [
         {
           text: 'Annuler',
@@ -293,107 +293,44 @@ export default function SendScreen() {
           <View style={styles.feesCard}>
             <View style={styles.feesRow}>
               <Text style={styles.feesTransactionLabel}>Frais de transaction</Text>
-              {address && isDeveloper(address) ? (
-                <View style={styles.freeFeesContainer}>
-                  <Text style={styles.freeFeesBadge}>GRATUIT ✨</Text>
-                  <Text style={styles.freeFeesText}>0 Btcon</Text>
-                </View>
-              ) : feesWaived ? (
-                <View style={styles.freeFeesContainer}>
-                  <Text style={styles.freeFeesBadge}>GAGNÉ 🎉</Text>
-                  <Text style={styles.freeFeesText}>0 Btcon</Text>
-                </View>
+              {isEstimatingFees ? (
+                <ActivityIndicator color="#FF8C00" />
               ) : (
-                <Text style={styles.feesTransactionValue}>
-                  500 Btcon
-                </Text>
+                <View style={styles.feesRightColumn}>
+                  <Text style={styles.feesValueBig}>{feeDetails?.networkFee?.toLocaleString() ?? '0'} Btcon</Text>
+                  <Text style={styles.feesEuroValue}>= {btconToEuro(feeDetails?.networkFee ?? 0, btcPrice)}€</Text>
+                </View>
               )}
             </View>
 
-            {!(address && isDeveloper(address)) && (
-              <View style={styles.coinFlipSection}>
-                {feeFlipState === 'idle' && !feesWaived && (
-                  <TouchableOpacity
-                    style={styles.coinFlipTrigger}
-                    onPress={startFeeFlip}
-                    testID="fee-coin-flip-button"
-                  >
-                    <Coins color="#FFD700" size={20} />
-                    <Text style={styles.coinFlipTriggerText}>Pile ou Face pour les frais ?</Text>
-                  </TouchableOpacity>
-                )}
+            <View style={styles.feesDivider} />
 
-                {feeFlipState === 'choosing' && (
-                  <View style={styles.coinFlipChoosing}>
-                    <Text style={styles.coinFlipQuestion}>Choisissez votre côté :</Text>
-                    <View style={styles.coinFlipChoices}>
-                      <TouchableOpacity
-                        style={styles.coinFlipChoiceBtn}
-                        onPress={() => doFeeFlip('heads')}
-                      >
-                        <Text style={styles.coinFlipChoiceEmoji}>👑</Text>
-                        <Text style={styles.coinFlipChoiceText}>PILE</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.coinFlipChoiceBtn}
-                        onPress={() => doFeeFlip('tails')}
-                      >
-                        <Text style={styles.coinFlipChoiceEmoji}>🔄</Text>
-                        <Text style={styles.coinFlipChoiceText}>FACE</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                )}
-
-                {feeFlipState === 'flipping' && (
-                  <View style={styles.coinFlipAnimArea}>
-                    <Animated.View
-                      style={[
-                        styles.miniCoin,
-                        {
-                          transform: [
-                            {
-                              rotateX: flipAnim.interpolate({
-                                inputRange: [0, 1],
-                                outputRange: ['0deg', '1800deg'],
-                              }),
-                            },
-                          ],
-                        },
-                      ]}
-                    >
-                      <Image source={coinImage} style={styles.miniCoinImage} resizeMode="cover" />
-                    </Animated.View>
-                    <Text style={styles.coinFlipFlippingText}>La pièce tourne...</Text>
-                  </View>
-                )}
-
-                {feeFlipState === 'won' && (
-                  <View style={styles.coinFlipResultArea}>
-                    <View style={styles.coinFlipWonBadge}>
-                      <Text style={styles.coinFlipWonText}>🎉 GAGNÉ !</Text>
-                      <Text style={styles.coinFlipResultDetail}>
-                        Vous avez choisi {feeFlipChoice === 'heads' ? 'PILE' : 'FACE'} et c'est tombé sur {feeFlipResult === 'heads' ? 'PILE' : 'FACE'}
-                      </Text>
-                      <Text style={styles.coinFlipFreeText}>Personne ne paye les frais !</Text>
-                    </View>
-                  </View>
-                )}
-
-                {feeFlipState === 'lost' && (
-                  <View style={styles.coinFlipResultArea}>
-                    <View style={styles.coinFlipLostBadge}>
-                      <Text style={styles.coinFlipLostText}>😔 PERDU</Text>
-                      <Text style={styles.coinFlipResultDetail}>
-                        Vous avez choisi {feeFlipChoice === 'heads' ? 'PILE' : 'FACE'} mais c'est tombé sur {feeFlipResult === 'heads' ? 'PILE' : 'FACE'}
-                      </Text>
-                      <Text style={styles.coinFlipLostFees}>Frais normaux : 500 Btcon</Text>
-                    </View>
-
-                  </View>
-                )}
+            <View style={styles.feesRow}>
+              <Text style={styles.feesLeftLabel}>Btcon</Text>
+              <View style={styles.feesRightColumn}>
+                <Text style={styles.feesValueBig}>{feeDetails?.networkFee?.toLocaleString() ?? '0'}</Text>
+                <Text style={styles.feesEuroValue}>≈ {btconToEuro(feeDetails?.networkFee ?? 0, btcPrice)}€</Text>
               </View>
-            )}
+            </View>
+
+            <View style={styles.feesDivider} />
+
+            <View style={styles.feesRow}>
+              <Text style={styles.feesLeftLabel}>Bonus admin</Text>
+              <View style={styles.feesRightColumn}>
+                <Text style={styles.feesValueBig}>{feeDetails?.adminFee?.toLocaleString() ?? '0'} Btcon</Text>
+                <Text style={styles.feesEuroValue}>≈ {btconToEuro(feeDetails?.adminFee ?? 0, btcPrice)}€</Text>
+              </View>
+            </View>
+
+            <View style={styles.feesDivider} />
+
+            <View style={styles.feesRow}>
+              <Text style={styles.feesLeftLabel}>Taux réseau</Text>
+              <View style={styles.feesRightColumn}>
+                <Text style={styles.feesValueBig}>{feeDetails?.feeRate?.toFixed(2) ?? '0.00'} sat/vB</Text>
+              </View>
+            </View>
           </View>
         )}
 

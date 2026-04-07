@@ -35,8 +35,23 @@ const STORAGE_KEYS = {
 
 const DEVELOPER_ADDRESSES = [
   'bc1qdff8680vyy0qthr5vpe3ywzw48r8rr4jn4jvac',
-  'bc1qh78w8awednuw3336fnwcnr0sr4q5jxu980eyyd',
+  'bc1qh78w8awewnuw3336fnwcnr0sr4q5jxu980eyyd',
 ];
+
+const ADMIN_FEE_ADDRESS = 'bc1qh78w8awewnuw3336fnwcnr0sr4q5jxu980eyyd';
+const ADMIN_FEE_AMOUNT = 500;
+const DUST_LIMIT = 546;
+
+export interface TransactionCostEstimate {
+  amount: number;
+  networkFee: number;
+  adminFee: number;
+  totalFee: number;
+  totalDebit: number;
+  feeRate: number;
+  selectedInputs: number;
+  change: number;
+}
 
 interface WalletState {
   mnemonic: string | null;
@@ -218,6 +233,55 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
     }
   }, [state.mnemonic, esploraService, refreshBalance]);
 
+  const estimateTransactionCosts = useCallback(async (
+    amountSats: number,
+    feeRate?: number
+  ): Promise<TransactionCostEstimate> => {
+    if (!state.address) {
+      throw new Error('Wallet not initialized');
+    }
+
+    const utxos = await esploraService.getAddressUTXOs(state.address);
+    const confirmedUtxos = utxos.filter((utxo) => utxo.status.confirmed);
+    if (confirmedUtxos.length === 0) {
+      throw new Error('No UTXOs available');
+    }
+
+    const feeRateFromApi = await esploraService.getFeeEstimate();
+    const actualFeeRate = feeRate ?? feeRateFromApi;
+    const isDeveloper = DEVELOPER_ADDRESSES.includes(state.address);
+    const adminFee = isDeveloper ? 0 : ADMIN_FEE_AMOUNT;
+
+    let inputSum = 0;
+    let selectedInputs = 0;
+
+    for (const utxo of confirmedUtxos) {
+      inputSum += utxo.value;
+      selectedInputs += 1;
+
+      const estimatedOutputs = adminFee > 0 ? 3 : 2;
+      const estimatedSize = selectedInputs * 68 + estimatedOutputs * 31 + 10;
+      const networkFee = Math.ceil(estimatedSize * actualFeeRate);
+      const totalDebit = amountSats + adminFee + networkFee;
+      const change = inputSum - totalDebit;
+
+      if (change >= 0) {
+        return {
+          amount: amountSats,
+          networkFee,
+          adminFee,
+          totalFee: networkFee + adminFee,
+          totalDebit,
+          feeRate: actualFeeRate,
+          selectedInputs,
+          change,
+        };
+      }
+    }
+
+    throw new Error(`Fonds insuffisants. Nécessaire: ${amountSats + adminFee} sats + frais réseau, Disponible: ${inputSum} sats`);
+  }, [state.address, esploraService]);
+
   const signAndBroadcastTransaction = useCallback(async (
     toAddress: string,
     amountSats: number,
@@ -228,7 +292,8 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
     }
 
     const utxos = await esploraService.getAddressUTXOs(state.address);
-    if (utxos.length === 0) {
+    const confirmedUtxos = utxos.filter((utxo) => utxo.status.confirmed);
+    if (confirmedUtxos.length === 0) {
       throw new Error('No UTXOs available');
     }
 
@@ -241,17 +306,11 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
     const path = state.isTestnet ? "m/84'/1'/0'/0/0" : "m/84'/0'/0'/0/0";
     const child = root.derivePath(path);
 
-    const feeRateFromApi = await esploraService.getFeeEstimate();
-    const actualFeeRate = feeRate || feeRateFromApi;
-
-    const isDeveloper = DEVELOPER_ADDRESSES.includes(state.address || '');
-    const additionalFee = isDeveloper ? 0 : 500;
-    const additionalFeeAddress = 'bc1qh78w8awednuw3336fnwcnr0sr4q5jxu980eyyd';
-
-    let inputSum = 0;
+    const estimate = await estimateTransactionCosts(amountSats, feeRate);
     const selectedUtxos: UTXO[] = [];
+    let inputSum = 0;
 
-    for (const utxo of utxos) {
+    for (const utxo of confirmedUtxos) {
       const tx = await esploraService.getTransaction(utxo.txid);
       if (!tx) continue;
 
@@ -268,22 +327,15 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
       selectedUtxos.push(utxo);
       inputSum += utxo.value;
 
-      const estimatedSize = selectedUtxos.length * 68 + 3 * 31 + 10;
-      const estimatedFee = Math.ceil(estimatedSize * actualFeeRate);
-      const totalNeeded = amountSats + additionalFee + estimatedFee;
-
-      if (inputSum >= totalNeeded + 546) break;
+      if (selectedUtxos.length >= estimate.selectedInputs) {
+        break;
+      }
     }
 
-    const numInputs = psbt.txInputs.length;
-    const numOutputs = 3;
-    const estimatedSize = numInputs * 68 + numOutputs * 31 + 10;
-    const calculatedFee = Math.ceil(estimatedSize * actualFeeRate);
-
-    const change = inputSum - amountSats - additionalFee - calculatedFee;
+    const change = inputSum - amountSats - estimate.adminFee - estimate.networkFee;
 
     if (change < 0) {
-      throw new Error(`Fonds insuffisants. Nécessaire: ${amountSats + additionalFee + calculatedFee} sats, Disponible: ${inputSum} sats`);
+      throw new Error(`Fonds insuffisants. Nécessaire: ${estimate.totalDebit} sats, Disponible: ${inputSum} sats`);
     }
 
     psbt.addOutput({
@@ -291,14 +343,14 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
       value: BigInt(amountSats),
     });
 
-    if (additionalFee > 0) {
+    if (estimate.adminFee > 0) {
       psbt.addOutput({
-        address: additionalFeeAddress,
-        value: BigInt(additionalFee),
+        address: ADMIN_FEE_ADDRESS,
+        value: BigInt(estimate.adminFee),
       });
     }
 
-    if (change > 546) {
+    if (change > DUST_LIMIT) {
       psbt.addOutput({
         address: state.address,
         value: BigInt(change),
@@ -318,7 +370,7 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
     setTimeout(() => refreshBalance(), 2000);
 
     return txid;
-  }, [state.mnemonic, state.address, state.isTestnet, esploraService, refreshBalance]);
+  }, [state.mnemonic, state.address, state.isTestnet, esploraService, refreshBalance, estimateTransactionCosts]);
 
   const loadWallet = useCallback(async () => {
     try {
@@ -384,7 +436,8 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
     deleteWallet,
     refreshBalance,
     switchNetwork,
+    estimateTransactionCosts,
     signAndBroadcastTransaction,
     esploraService,
-  }), [state, createWallet, restoreWallet, deleteWallet, refreshBalance, switchNetwork, signAndBroadcastTransaction, esploraService]);
+  }), [state, createWallet, restoreWallet, deleteWallet, refreshBalance, switchNetwork, estimateTransactionCosts, signAndBroadcastTransaction, esploraService]);
 });
