@@ -244,7 +244,7 @@ export default function SendScreen() {
           />
         ))}
       </View>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingHorizontal: responsive.horizontalPadding, paddingTop: responsive.isDesktop ? 36 : responsive.isTablet ? 44 : 60 }]}> 
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <ArrowLeft color="#FFF" size={24} />
         </TouchableOpacity>
@@ -255,11 +255,11 @@ export default function SendScreen() {
       <ScrollView 
         ref={scrollViewRef}
         style={styles.scrollView} 
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingHorizontal: responsive.horizontalPadding, maxWidth: responsive.contentMaxWidth, alignSelf: 'center', width: '100%' }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.formCard}>
+        <View style={[styles.formCard, { padding: responsive.cardPadding }]}> 
           <View style={styles.inputContainer}>
             <Text style={styles.inputLabel}>Destinataire</Text>
             <View style={styles.inputRow}>
@@ -290,7 +290,7 @@ export default function SendScreen() {
         )}
 
         {totalAmount > 0 && (
-          <View style={styles.feesCard}>
+          <View style={[styles.feesCard, { padding: responsive.cardPadding }]}> 
             <View style={styles.feesRow}>
               <Text style={styles.feesTransactionLabel}>Frais de transaction</Text>
               {isEstimatingFees ? (
@@ -335,7 +335,7 @@ export default function SendScreen() {
         )}
 
         {!showCamera && (
-          <View style={styles.actionButtonsRow}>
+          <View style={[styles.actionButtonsRow, { width: '100%' }]}> 
             <TouchableOpacity
               style={styles.cameraButton}
               onPress={handleOpenCamera}
@@ -382,7 +382,7 @@ export default function SendScreen() {
 
         {toAddress.trim() !== '' && totalAmount > 0 && (
           <TouchableOpacity
-            style={[styles.sendButton, isSending && styles.sendButtonDisabled]}
+            style={[styles.sendButton, { alignSelf: 'center', width: '100%', maxWidth: responsive.isDesktop ? 520 : responsive.isTablet ? 460 : undefined }, isSending && styles.sendButtonDisabled]}
             onPress={handleSend}
             disabled={isSending}
             testID="send-transaction-button"
@@ -509,8 +509,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    padding: 24,
-    paddingTop: 12,
+    paddingVertical: 12,
     paddingBottom: 40,
   },
   balanceCard: {

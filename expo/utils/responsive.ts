@@ -17,6 +17,11 @@ export interface ResponsiveInfo {
   scale: (size: number) => number;
   isSmallPhone: boolean;
   isLargePhone: boolean;
+  horizontalPadding: number;
+  contentMaxWidth: number;
+  cardPadding: number;
+  sectionGap: number;
+  modalMaxWidth: number;
 }
 
 export function useResponsive(): ResponsiveInfo {
@@ -41,17 +46,23 @@ export function useResponsive(): ResponsiveInfo {
     const baseWidth = 375;
     const scale = (size: number) => {
       if (deviceType === 'tablet') {
-        return Math.round(size * 1.3);
+        return Math.round(size * 1.16);
       }
       if (deviceType === 'desktop') {
-        return Math.round(size * 1.5);
+        return Math.round(size * 1.22);
       }
       if (isSmallPhone) {
         return Math.round(size * 0.9);
       }
       const scaleFactor = width / baseWidth;
-      return Math.round(size * Math.min(scaleFactor, 1.2));
+      return Math.round(size * Math.min(scaleFactor, 1.08));
     };
+
+    const horizontalPadding = deviceType === 'desktop' ? 32 : deviceType === 'tablet' ? 28 : isSmallPhone ? 16 : 20;
+    const contentMaxWidth = deviceType === 'desktop' ? 1080 : deviceType === 'tablet' ? 820 : 680;
+    const cardPadding = deviceType === 'desktop' ? 28 : deviceType === 'tablet' ? 24 : isSmallPhone ? 18 : 20;
+    const sectionGap = deviceType === 'desktop' ? 24 : deviceType === 'tablet' ? 20 : 16;
+    const modalMaxWidth = deviceType === 'desktop' ? 520 : deviceType === 'tablet' ? 480 : 420;
 
     return {
       width,
@@ -66,6 +77,11 @@ export function useResponsive(): ResponsiveInfo {
       scale,
       isSmallPhone,
       isLargePhone,
+      horizontalPadding,
+      contentMaxWidth,
+      cardPadding,
+      sectionGap,
+      modalMaxWidth,
     };
   }, [width, height]);
 }

@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, ActivityIndicator, Alert, Platform, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useWallet } from '@/contexts/WalletContext';
+import { useResponsive } from '@/utils/responsive';
 
 import * as ScreenCapture from 'expo-screen-capture';
 
@@ -10,6 +11,7 @@ import * as ScreenCapture from 'expo-screen-capture';
 export default function OnboardingScreen() {
   const router = useRouter();
   const { createWallet, restoreWallet, isLoading } = useWallet();
+  const responsive = useResponsive();
 
   const [mode, setMode] = useState<'choose' | 'restore' | 'show-seed'>('choose');
   const [restorePhrase, setRestorePhrase] = useState<string>('');
@@ -120,16 +122,16 @@ export default function OnboardingScreen() {
           <View style={[styles.glowCircle, { top: -100, right: -50 }]} />
           <View style={[styles.glowCircle, { bottom: -100, left: -50 }]} />
         </View>
-        <View style={styles.content}>
+        <View style={[styles.content, { paddingHorizontal: responsive.horizontalPadding, maxWidth: responsive.contentMaxWidth }] }>
           <View style={styles.logoSection}>
             <Image
               source={{ uri: 'https://pub-e001eb4506b145aa938b5d3badbff6a5.r2.dev/attachments/fycv5rxyn7iqfp2lwp4zb' }}
-              style={styles.logoImage}
+              style={[styles.logoImage, { width: responsive.isDesktop ? 240 : responsive.isTablet ? 220 : responsive.isSmallPhone ? 148 : 200, height: responsive.isDesktop ? 240 : responsive.isTablet ? 220 : responsive.isSmallPhone ? 148 : 200 }]}
               resizeMode="contain"
             />
             <Image
               source={{ uri: 'https://pub-e001eb4506b145aa938b5d3badbff6a5.r2.dev/attachments/ig8yh1pui959enuvw0p3d' }}
-              style={styles.btcoinLogoImage}
+              style={[styles.btcoinLogoImage, { width: responsive.isDesktop ? 460 : responsive.isTablet ? 400 : responsive.isSmallPhone ? 280 : 360, height: responsive.isDesktop ? 200 : responsive.isTablet ? 180 : responsive.isSmallPhone ? 120 : 150 }]}
               resizeMode="contain"
             />
             <Text style={styles.welcomeText}>Votre Portefeuille Btcon</Text>
@@ -150,7 +152,7 @@ export default function OnboardingScreen() {
               {isCreating ? (
                 <ActivityIndicator color="#000" />
               ) : (
-                <Text style={styles.primaryButtonText}>Nouveau</Text>
+                <Text style={[styles.primaryButtonText, { fontSize: responsive.scale(24) }]}>Nouveau</Text>
               )}
             </TouchableOpacity>
 
@@ -164,7 +166,7 @@ export default function OnboardingScreen() {
               activeOpacity={0.85}
               testID="restore-wallet-button"
             >
-              <Text style={styles.secondaryButtonText}>Ancien</Text>
+              <Text style={[styles.secondaryButtonText, { fontSize: responsive.scale(24) }]}>Ancien</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -177,8 +179,8 @@ export default function OnboardingScreen() {
   if (mode === 'show-seed') {
     return (
       <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.content}>
-          <Text style={styles.title}>🔐 Phrase de Récupération</Text>
+        <View style={[styles.content, { paddingHorizontal: responsive.horizontalPadding, maxWidth: responsive.modalMaxWidth }] }>
+          <Text style={[styles.title, { fontSize: responsive.scale(28), marginBottom: responsive.isSmallPhone ? 40 : 56 }]}>🔐 Phrase de Récupération</Text>
           <Text style={styles.subtitle}>
             Notez ces 12 mots dans l&apos;ordre. Ils sont la seule façon de récupérer votre portefeuille.
           </Text>
@@ -216,8 +218,8 @@ export default function OnboardingScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-      <View style={styles.content}>
-        <Text style={styles.title}>Restaurer le Portefeuille</Text>
+      <View style={[styles.content, { paddingHorizontal: responsive.horizontalPadding, maxWidth: responsive.modalMaxWidth }] }>
+        <Text style={[styles.title, { fontSize: responsive.scale(28), marginBottom: responsive.isSmallPhone ? 40 : 56 }]}>Restaurer le Portefeuille</Text>
         <Text style={styles.subtitle}>Entrez votre phrase de récupération de 12 mots</Text>
 
         <TextInput
@@ -281,7 +283,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    padding: 24,
+    paddingVertical: 24,
     justifyContent: 'center',
     maxWidth: 600,
     width: '100%',
@@ -443,7 +445,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    width: '47%',
+    width: '48%',
     borderWidth: 1,
     borderColor: '#333',
   },

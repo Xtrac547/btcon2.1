@@ -288,7 +288,7 @@ export default function WalletScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, { paddingHorizontal: responsive.horizontalPadding, maxWidth: responsive.contentMaxWidth, width: '100%', alignSelf: 'center' }]}> 
         <View style={styles.topBarLeft}>
           <TouchableOpacity
             style={styles.topButton}
@@ -345,8 +345,8 @@ export default function WalletScreen() {
         </View>
       </View>
 
-      <View style={styles.mainContent}>
-          <View style={styles.balanceCompact}>
+      <View style={[styles.mainContent, { paddingHorizontal: responsive.horizontalPadding, maxWidth: responsive.contentMaxWidth, width: '100%', alignSelf: 'center' }]}> 
+          <View style={[styles.balanceCompact, { paddingHorizontal: responsive.cardPadding, paddingVertical: responsive.isSmallPhone ? 10 : 12 }]}> 
             <View style={styles.balanceRow}>
               <Text style={styles.balanceCompactText}>
                 {balance.toLocaleString()} Btcon
@@ -359,7 +359,7 @@ export default function WalletScreen() {
             </View>
           </View>
           
-          <View style={styles.selectedAmountBox}>
+          <View style={[styles.selectedAmountBox, { paddingHorizontal: responsive.cardPadding }]}> 
             <View style={styles.selectedAmountRow}>
               <Text style={[styles.selectedAmountText, { fontSize: responsive.scale(hasSelectedTokens ? 14 : 15) }]}>
                 {totalAmount.toLocaleString()} Btcon sélectionné
@@ -373,7 +373,7 @@ export default function WalletScreen() {
           </View>
 
 
-          <View style={styles.tokensSection}>
+          <View style={[styles.tokensSection, { padding: responsive.cardPadding }]}> 
             <View style={styles.labelRow}>
               <Text style={styles.tokensLabel}>Jetons</Text>
               {totalAmount > 0 && (
@@ -383,8 +383,8 @@ export default function WalletScreen() {
               )}
             </View>
             
-            <View style={styles.tokensContainer}>
-              <View style={styles.topTokensRow}>
+            <View style={[styles.tokensContainer, { gap: responsive.sectionGap }]}> 
+              <View style={[styles.topTokensRow, { gap: responsive.sectionGap }]}> 
                 {[1000, 5000].map((value) => (
                   <Pressable
                     key={value}
@@ -434,10 +434,10 @@ export default function WalletScreen() {
 
 
       {hasSelectedTokens && (
-        <View style={styles.actionsContainer}>
+        <View style={[styles.actionsContainer, { paddingHorizontal: responsive.horizontalPadding, maxWidth: responsive.contentMaxWidth, width: '100%', alignSelf: 'center', flexDirection: responsive.isDesktop ? 'row' : 'row' }]}> 
           <Animated.View style={[styles.actionButtonWrapper, { transform: [{ scale: receiveButtonScale }] }]}>
             <TouchableOpacity
-              style={[styles.actionButton, styles.receiveButton]}
+              style={[styles.actionButton, styles.receiveButton, { minHeight: responsive.isDesktop ? 132 : responsive.isTablet ? 120 : 112 }]}
               onPress={handleReceive}
               activeOpacity={0.85}
               testID="receive-button"
@@ -452,7 +452,7 @@ export default function WalletScreen() {
 
           <Animated.View style={[styles.actionButtonWrapper, { transform: [{ scale: sendButtonScale }] }]}>
             <TouchableOpacity
-              style={[styles.actionButton, styles.sendButton]}
+              style={[styles.actionButton, styles.sendButton, { minHeight: responsive.isDesktop ? 132 : responsive.isTablet ? 120 : 112 }]}
               onPress={handleSend}
               activeOpacity={0.85}
               testID="send-button"

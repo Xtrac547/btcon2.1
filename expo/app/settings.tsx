@@ -8,6 +8,7 @@ import { useDeveloperHierarchy } from '@/contexts/DeveloperHierarchyContext';
 import { ArrowLeft, Eye, EyeOff, Shield, LogOut, Lock, AlertCircle, X, Key, Fingerprint } from 'lucide-react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useResponsive } from '@/utils/responsive';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -23,6 +24,7 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isWideScreen = width > 768;
+  const responsive = useResponsive();
 
   const handleShowSeed = async () => {
     if (showSeed) {
@@ -76,7 +78,7 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: insets.top + 20 }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 20, paddingHorizontal: responsive.horizontalPadding, maxWidth: responsive.contentMaxWidth, width: '100%', alignSelf: 'center' }]}
         <Pressable onPress={() => router.back()} style={styles.backButton}>
           <View style={styles.backButtonCircle}>
             <ArrowLeft color="#FFF" size={20} strokeWidth={2.5} />
@@ -86,7 +88,7 @@ export default function SettingsScreen() {
         <View style={styles.placeholder} />
       </View>
 
-      <ScrollView style={styles.scrollView} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40, maxWidth: isWideScreen ? 700 : width, width: '100%', alignSelf: 'center' }]}>
+      <ScrollView style={styles.scrollView} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40, maxWidth: isWideScreen ? responsive.contentMaxWidth : width, width: '100%', alignSelf: 'center', paddingHorizontal: responsive.horizontalPadding }]}>
 
         <View style={styles.settingsCard}>
           <View style={styles.securitySection}>
@@ -118,9 +120,10 @@ export default function SettingsScreen() {
                 <AlertCircle color="#FF8C00" size={18} strokeWidth={2.5} />
                 <Text style={styles.warningText}>Ne partagez jamais cette phrase</Text>
               </View>
-              <View style={styles.wordsGrid}>
+              <View style={[styles.wordsGrid, { gap: responsive.isSmallPhone ? 8 : 10 }]}>
+
                 {words.map((word, index) => (
-                  <View key={index} style={styles.wordChip}>
+                  <View key={index} style={[styles.wordChip, { width: responsive.isDesktop ? '31.5%' : responsive.isTablet ? '48%' : '100%' }]}>
                     <Text style={styles.wordIndex}>{index + 1}</Text>
                     <Text style={styles.wordValue}>{word}</Text>
                   </View>
@@ -224,7 +227,7 @@ export default function SettingsScreen() {
         </View>
 
         {isDeveloper(address || '') && (
-          <Pressable style={styles.adminCard} onPress={() => router.push('/developer-hierarchy')}>
+          <Pressable style={[styles.adminCard, { padding: responsive.cardPadding }]} onPress={() => router.push('/developer-hierarchy')}>
             <View style={styles.adminCardHeader}>
               <View style={styles.adminCardIcon}>
                 <Shield color="#FFD700" size={20} />
@@ -248,7 +251,7 @@ export default function SettingsScreen() {
         onRequestClose={() => { setShowChangePinModal(false); setOldPin(''); setNewPin(''); setConfirmNewPin(''); setPinError(''); }}
       >
         <Pressable style={styles.modalOverlay} onPress={() => { setShowChangePinModal(false); setOldPin(''); setNewPin(''); setConfirmNewPin(''); setPinError(''); }}>
-          <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+          <Pressable style={[styles.modalContent, { alignSelf: 'center', width: '100%', maxWidth: responsive.modalMaxWidth }]} onPress={(e) => e.stopPropagation()}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Modifier le code PIN</Text>
               <Pressable onPress={() => { setShowChangePinModal(false); setOldPin(''); setNewPin(''); setConfirmNewPin(''); setPinError(''); }}>
@@ -330,7 +333,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    padding: 20,
+    paddingVertical: 20,
     paddingBottom: 40,
   },
   cardPressed: {
@@ -431,7 +434,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   wordChip: {
-    width: '47%',
+    width: '48%',
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#1A1A1A',
