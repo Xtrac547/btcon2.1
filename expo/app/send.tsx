@@ -476,6 +476,21 @@ export default function SendScreen() {
 
 
 
+            {feeDetails && !isEstimatingFees && (
+              <>
+                <View style={styles.feesDivider} />
+                <View style={styles.feesRow}>
+                  <Text style={[styles.feesTransactionLabel, { color: '#FF8C00' }]}>Total</Text>
+                  <View style={styles.feesRightColumn}>
+                    <Text style={[styles.feesValueBig, { color: '#FF8C00' }]}>
+                      {formatBtconDisplay(feeDetails.totalDebit)}
+                    </Text>
+                    <Text style={styles.feesEuroValue}>≈ {btconToEuro(feeDetails.totalDebit, btcPrice)}€</Text>
+                  </View>
+                </View>
+              </>
+            )}
+
             {feeDetails && feeDetails.totalDebit > balance && (
               <View style={styles.insufficientWarning}>
                 <AlertTriangle color="#FF4444" size={14} />
