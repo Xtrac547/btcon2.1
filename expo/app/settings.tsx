@@ -78,7 +78,7 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: insets.top + 20, paddingHorizontal: responsive.horizontalPadding, maxWidth: responsive.contentMaxWidth, width: '100%', alignSelf: 'center' }]}
+      <View style={[styles.header, { paddingTop: insets.top + 20, paddingHorizontal: responsive.horizontalPadding, maxWidth: responsive.contentMaxWidth, width: '100%', alignSelf: 'center' }]}>
         <Pressable onPress={() => router.back()} style={styles.backButton}>
           <View style={styles.backButtonCircle}>
             <ArrowLeft color="#FFF" size={20} strokeWidth={2.5} />
