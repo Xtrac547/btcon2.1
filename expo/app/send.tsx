@@ -29,6 +29,9 @@ interface FeeOption {
 
 const FEE_REFRESH_INTERVAL = 30_000;
 const DUST_LIMIT = 546;
+const FEE_INCREASE_INTERVAL = 10_000;
+const FEE_INCREASE_STEP = 0.02;
+const MAX_FEE_MULTIPLIER = 1.5;
 
 export default function SendScreen() {
   const router = useRouter();
@@ -65,6 +68,10 @@ export default function SendScreen() {
   const [showFeeDetails, setShowFeeDetails] = useState(false);
   const { btcPrice } = useBtcPrice();
   const feeRefreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [feeMultiplier, setFeeMultiplier] = useState<number>(1);
+  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+  const screenOpenedAt = useRef<number>(Date.now());
+  const feeIncreaseTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const totalAmount = amountBtcon;
 
@@ -101,6 +108,24 @@ export default function SendScreen() {
     };
   }, [fetchRecommendedFees]);
 
+  useEffect(() => {
+    screenOpenedAt.current = Date.now();
+
+    feeIncreaseTimerRef.current = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - screenOpenedAt.current) / 1000);
+      setElapsedSeconds(elapsed);
+      const steps = Math.floor(elapsed / (FEE_INCREASE_INTERVAL / 1000));
+      const newMultiplier = Math.min(1 + steps * FEE_INCREASE_STEP, MAX_FEE_MULTIPLIER);
+      setFeeMultiplier(newMultiplier);
+    }, 1000);
+
+    return () => {
+      if (feeIncreaseTimerRef.current) {
+        clearInterval(feeIncreaseTimerRef.current);
+      }
+    };
+  }, []);
+
   const feeOptions = useMemo((): FeeOption[] => {
     if (!recommendedFees) return [];
     return [
@@ -128,10 +153,25 @@ export default function SendScreen() {
     ];
   }, [recommendedFees]);
 
-  const selectedFeeRate = useMemo(() => {
+  const baseFeeRate = useMemo(() => {
     const option = feeOptions.find(o => o.key === selectedPriority);
     return option?.rate ?? recommendedFees?.halfHourFee ?? 0;
   }, [feeOptions, selectedPriority, recommendedFees]);
+
+  const selectedFeeRate = useMemo(() => {
+    return Math.ceil(baseFeeRate * feeMultiplier);
+  }, [baseFeeRate, feeMultiplier]);
+
+  const feeIncreasePercent = useMemo(() => {
+    return Math.round((feeMultiplier - 1) * 100);
+  }, [feeMultiplier]);
+
+  const formatElapsed = useCallback((seconds: number): string => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    if (m > 0) return `${m}min ${s.toString().padStart(2, '0')}s`;
+    return `${s}s`;
+  }, []);
 
   useEffect(() => {
     const updateFees = async () => {
@@ -473,6 +513,29 @@ export default function SendScreen() {
             {timeSinceRefresh ? (
               <Text style={styles.refreshTimestamp}>Mis à jour {timeSinceRefresh}</Text>
             ) : null}
+
+            {feeMultiplier > 1 && (
+              <View style={styles.timeWarningContainer}>
+                <View style={styles.timeWarningHeader}>
+                  <Clock color="#FF4444" size={14} />
+                  <Text style={styles.timeWarningTitle}>Surcoût temps d'attente</Text>
+                </View>
+                <View style={styles.timeWarningBar}>
+                  <View style={[
+                    styles.timeWarningBarFill,
+                    { width: `${Math.min(((feeMultiplier - 1) / (MAX_FEE_MULTIPLIER - 1)) * 100, 100)}%` }
+                  ]} />
+                </View>
+                <View style={styles.timeWarningRow}>
+                  <Text style={styles.timeWarningText}>
+                    +{feeIncreasePercent}% depuis {formatElapsed(elapsedSeconds)}
+                  </Text>
+                  <Text style={styles.timeWarningRate}>
+                    {baseFeeRate} → {selectedFeeRate} sat/vB
+                  </Text>
+                </View>
+              </View>
+            )}
           </View>
         )}
 
@@ -862,6 +925,52 @@ const styles = StyleSheet.create({
     fontSize: 10,
     textAlign: 'center' as const,
     marginTop: 10,
+  },
+  timeWarningContainer: {
+    backgroundColor: 'rgba(255, 68, 68, 0.08)',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 68, 68, 0.2)',
+    gap: 8,
+  },
+  timeWarningHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  timeWarningTitle: {
+    color: '#FF6666',
+    fontSize: 12,
+    fontWeight: '700' as const,
+  },
+  timeWarningBar: {
+    height: 4,
+    backgroundColor: 'rgba(255, 68, 68, 0.15)',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  timeWarningBarFill: {
+    height: '100%',
+    backgroundColor: '#FF4444',
+    borderRadius: 2,
+  },
+  timeWarningRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  timeWarningText: {
+    color: '#FF6666',
+    fontSize: 11,
+    fontWeight: '600' as const,
+  },
+  timeWarningRate: {
+    color: '#FF8888',
+    fontSize: 11,
+    fontWeight: '800' as const,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   feesCard: {
     backgroundColor: '#0f0f0f',
