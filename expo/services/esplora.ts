@@ -301,7 +301,7 @@ export class EsploraService {
     const txSize = this.estimateVSize(numInputs, numOutputs, 'p2wpkh');
     const feeSats = Math.ceil(txSize * feeRate);
     const feeBtc = feeSats / 100_000_000;
-    console.log(`[Fees] Estimated: ${txSize} vB × ${feeRate} sat/vB = ${feeSats} sats (${feeBtc} BTC)`);
+    console.log(`[Fees] Estimated: ${txSize} vB × ${feeRate} sat/vB = ${feeSats} btcon (${feeBtc} BTC)`);
     return { feeSats, feeBtc, txSize };
   }
 }

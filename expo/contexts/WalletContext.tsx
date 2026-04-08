@@ -274,7 +274,7 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
       }
     }
 
-    throw new Error(`Fonds insuffisants. Nécessaire: ${amountSats} sats + frais réseau, Disponible: ${inputSum} sats`);
+    throw new Error(`Fonds insuffisants. Nécessaire: ${amountSats} btcon + frais réseau, Disponible: ${inputSum} btcon`);
   }, [state.address, esploraService]);
 
   const signAndBroadcastTransaction = useCallback(async (
@@ -330,7 +330,7 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
     const change = inputSum - amountSats - estimate.networkFee;
 
     if (change < 0) {
-      throw new Error(`Fonds insuffisants. Nécessaire: ${estimate.totalDebit} sats, Disponible: ${inputSum} sats`);
+      throw new Error(`Fonds insuffisants. Nécessaire: ${estimate.totalDebit} btcon, Disponible: ${inputSum} btcon`);
     }
 
     psbt.addOutput({
