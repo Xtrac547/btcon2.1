@@ -1,15 +1,34 @@
 import '@/utils/shim';
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, ActivityIndicator, ScrollView, useWindowDimensions, Platform } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useWallet } from '@/contexts/WalletContext';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { useDeveloperHierarchy } from '@/contexts/DeveloperHierarchyContext';
-import { ArrowLeft, Send, X, Camera } from 'lucide-react-native';
+import { ArrowLeft, Send, X, Camera, Zap, Clock, Turtle, RefreshCw, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useResponsive } from '@/utils/responsive';
 import { btconToEuro, useBtcPrice } from '@/services/btcPrice';
 
+type FeePriority = 'fast' | 'normal' | 'economy';
+
+interface RecommendedFees {
+  fastestFee: number;
+  halfHourFee: number;
+  hourFee: number;
+  minimumFee: number;
+}
+
+interface FeeOption {
+  key: FeePriority;
+  label: string;
+  sublabel: string;
+  rate: number;
+  color: string;
+}
+
+const FEE_REFRESH_INTERVAL = 30_000;
+const DUST_LIMIT = 546;
 
 export default function SendScreen() {
   const router = useRouter();
@@ -34,15 +53,89 @@ export default function SendScreen() {
     totalFee: number;
     totalDebit: number;
     feeRate: number;
+    vSize: number;
+    inputCount: number;
   } | null>(null);
   const [isEstimatingFees, setIsEstimatingFees] = useState(false);
+  const [selectedPriority, setSelectedPriority] = useState<FeePriority>('normal');
+  const [recommendedFees, setRecommendedFees] = useState<RecommendedFees | null>(null);
+  const [isLoadingFees, setIsLoadingFees] = useState(false);
+  const [feeStale, setFeeStale] = useState(false);
+  const [lastFeeRefresh, setLastFeeRefresh] = useState<number>(0);
+  const [showFeeDetails, setShowFeeDetails] = useState(false);
   const { btcPrice } = useBtcPrice();
+  const feeRefreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const totalAmount = amountBtcon;
 
+  const fetchRecommendedFees = useCallback(async () => {
+    setIsLoadingFees(true);
+    try {
+      console.log('[Fees] Fetching recommended fees...');
+      const fees = await esploraService.getRecommendedFees();
+      console.log('[Fees] Got recommended fees:', JSON.stringify(fees));
+      setRecommendedFees(fees);
+      setLastFeeRefresh(Date.now());
+      setFeeStale(false);
+      return fees;
+    } catch (error) {
+      console.error('[Fees] Failed to fetch recommended fees:', error);
+      setFeeStale(true);
+      return null;
+    } finally {
+      setIsLoadingFees(false);
+    }
+  }, [esploraService]);
+
+  useEffect(() => {
+    void fetchRecommendedFees();
+
+    feeRefreshTimerRef.current = setInterval(() => {
+      void fetchRecommendedFees();
+    }, FEE_REFRESH_INTERVAL);
+
+    return () => {
+      if (feeRefreshTimerRef.current) {
+        clearInterval(feeRefreshTimerRef.current);
+      }
+    };
+  }, [fetchRecommendedFees]);
+
+  const feeOptions = useMemo((): FeeOption[] => {
+    if (!recommendedFees) return [];
+    return [
+      {
+        key: 'fast' as FeePriority,
+        label: 'Rapide',
+        sublabel: '~10 min',
+        rate: recommendedFees.fastestFee,
+        color: '#FF4444',
+      },
+      {
+        key: 'normal' as FeePriority,
+        label: 'Normal',
+        sublabel: '~30 min',
+        rate: recommendedFees.halfHourFee,
+        color: '#FF8C00',
+      },
+      {
+        key: 'economy' as FeePriority,
+        label: 'Économique',
+        sublabel: '~60 min',
+        rate: recommendedFees.hourFee,
+        color: '#00CC66',
+      },
+    ];
+  }, [recommendedFees]);
+
+  const selectedFeeRate = useMemo(() => {
+    const option = feeOptions.find(o => o.key === selectedPriority);
+    return option?.rate ?? recommendedFees?.halfHourFee ?? 0;
+  }, [feeOptions, selectedPriority, recommendedFees]);
+
   useEffect(() => {
     const updateFees = async () => {
-      if (totalAmount <= 0) {
+      if (totalAmount <= 0 || selectedFeeRate <= 0) {
         setFeeDetails(null);
         return;
       }
@@ -52,12 +145,15 @@ export default function SendScreen() {
 
       try {
         if (address) {
-          const estimate = await estimateTransactionCosts(Math.floor(totalAmount));
+          const estimate = await estimateTransactionCosts(Math.floor(totalAmount), selectedFeeRate);
+          const vSize = esploraService.estimateVSize(estimate.selectedInputs, 2, 'p2wpkh');
           setFeeDetails({
             networkFee: estimate.networkFee,
             totalFee: estimate.totalFee,
             totalDebit: estimate.totalDebit,
             feeRate: estimate.feeRate,
+            vSize,
+            inputCount: estimate.selectedInputs,
           });
           success = true;
         }
@@ -68,17 +164,17 @@ export default function SendScreen() {
 
       if (!success) {
         try {
-          console.log('[Fees] Using mempool.space recommended fees fallback');
-          const recommended = await esploraService.getRecommendedFees();
-          const feeRate = recommended.halfHourFee;
-          const { feeSats } = esploraService.estimateFeesFromRate(feeRate, 1, 2);
+          console.log('[Fees] Using formula-based fallback with rate:', selectedFeeRate);
+          const { feeSats, txSize } = esploraService.estimateFeesFromRate(selectedFeeRate, 1, 2);
           const totalDebit = Math.floor(totalAmount) + feeSats;
 
           setFeeDetails({
             networkFee: feeSats,
             totalFee: feeSats,
             totalDebit,
-            feeRate,
+            feeRate: selectedFeeRate,
+            vSize: txSize,
+            inputCount: 1,
           });
         } catch (fallbackError) {
           console.error('[Fees] All fee estimation failed:', fallbackError);
@@ -90,94 +186,86 @@ export default function SendScreen() {
     };
 
     void updateFees();
-  }, [totalAmount, address, estimateTransactionCosts, esploraService]);
+  }, [totalAmount, address, estimateTransactionCosts, esploraService, selectedFeeRate]);
+
+  const addressValid = useMemo(() => {
+    const addr = toAddress.trim();
+    if (!addr) return null;
+    if (addr.startsWith('bc1q') || addr.startsWith('bc1p')) return true;
+    if (addr.startsWith('1') || addr.startsWith('3')) return true;
+    if (addr.startsWith('tb1') || addr.startsWith('m') || addr.startsWith('n') || addr.startsWith('2')) return true;
+    return false;
+  }, [toAddress]);
+
+  const canSend = useMemo(() => {
+    if (!toAddress.trim()) return false;
+    if (addressValid === false) return false;
+    if (totalAmount <= 0) return false;
+    if (totalAmount < DUST_LIMIT) return false;
+    if (!feeDetails) return false;
+    if (feeDetails.totalDebit > balance) return false;
+    if (isEstimatingFees) return false;
+    return true;
+  }, [toAddress, addressValid, totalAmount, feeDetails, balance, isEstimatingFees]);
+
+  const sendDisabledReason = useMemo((): string | null => {
+    if (!toAddress.trim()) return 'Adresse requise';
+    if (addressValid === false) return 'Adresse invalide';
+    if (totalAmount <= 0) return 'Montant requis';
+    if (totalAmount < DUST_LIMIT) return `Minimum: ${DUST_LIMIT} sats`;
+    if (isEstimatingFees) return 'Calcul des frais...';
+    if (!feeDetails) return 'Frais indisponibles';
+    if (feeDetails.totalDebit > balance) return `Fonds insuffisants (manque ${(feeDetails.totalDebit - balance).toLocaleString()} sats)`;
+    return null;
+  }, [toAddress, addressValid, totalAmount, feeDetails, balance, isEstimatingFees]);
 
   const handleSend = async () => {
     const input = toAddress.trim();
     
-    if (!input) {
-      Alert.alert('Error', 'Veuillez entrer une adresse Btcon');
+    if (!canSend || !feeDetails) {
+      if (sendDisabledReason) {
+        Alert.alert('Impossible', sendDisabledReason);
+      }
       return;
     }
-
-    const isDevAddress = address ? isDeveloper(address) : false;
 
     const resolvedAddress = input;
-
-
-
-    if (totalAmount === 0) {
-      Alert.alert('Error', 'Veuillez sélectionner un montant');
-      return;
-    }
-
     const btconAmount = totalAmount;
     const satsAmount = Math.floor(btconAmount);
 
-    if (satsAmount > balance) {
-      Alert.alert('Error', 'Fonds insuffisants');
-      return;
-    }
+    const feeBtc = (feeDetails.networkFee / 100_000_000).toFixed(8);
+    const feeEur = btconToEuro(feeDetails.networkFee, btcPrice);
+    const totalBtc = (feeDetails.totalDebit / 100_000_000).toFixed(8);
+    const totalEur = btconToEuro(feeDetails.totalDebit, btcPrice);
 
-    if (satsAmount < 546) {
-      Alert.alert('Error', 'Montant trop petit');
-      return;
-    }
-
-    let currentFeeDetails = feeDetails;
-
-    if (!currentFeeDetails) {
-      try {
-        const estimate = await estimateTransactionCosts(satsAmount);
-        currentFeeDetails = {
-          networkFee: estimate.networkFee,
-          totalFee: estimate.totalFee,
-          totalDebit: estimate.totalDebit,
-          feeRate: estimate.feeRate,
-        };
-        setFeeDetails(currentFeeDetails);
-      } catch (error) {
-        Alert.alert('Error', error instanceof Error ? error.message : 'Impossible de calculer les frais');
-        return;
-      }
-    }
-
-    const feeMessage = `\n\nFrais de transaction: ${currentFeeDetails.networkFee.toLocaleString()} Btcon = ${btconToEuro(currentFeeDetails.networkFee, btcPrice)}€`;
+    const priorityLabel = feeOptions.find(o => o.key === selectedPriority)?.label ?? 'Normal';
 
     Alert.alert(
       'Confirmer la transaction',
-      `Montant: ${Math.floor(btconAmount).toLocaleString()} Btcon\n\nDestinataire: ${resolvedAddress.slice(0, 10) + '...'}${feeMessage}\n\nTotal à déduire: ${currentFeeDetails.totalDebit.toLocaleString()} Btcon`,
+      `Destinataire: ${resolvedAddress.slice(0, 12)}...${resolvedAddress.slice(-6)}\n\nMontant: ${satsAmount.toLocaleString()} sats\n\nFrais réseau (${priorityLabel}): ${feeDetails.networkFee.toLocaleString()} sats\n= ${feeBtc} BTC ≈ ${feeEur}€\nTaux: ${feeDetails.feeRate} sat/vB | ${feeDetails.vSize} vB\n\nTotal débité: ${feeDetails.totalDebit.toLocaleString()} sats\n= ${totalBtc} BTC ≈ ${totalEur}€`,
       [
+        { text: 'Annuler', style: 'cancel' },
         {
-          text: 'Annuler',
-          style: 'cancel',
-        },
-        {
-          text: 'Envoyer',
+          text: 'Confirmer',
           onPress: async () => {
             setIsSending(true);
             try {
-              const txid = await signAndBroadcastTransaction(resolvedAddress, satsAmount);
+              const txid = await signAndBroadcastTransaction(resolvedAddress, satsAmount, selectedFeeRate);
               const explorerUrl = esploraService.getExplorerUrl(txid);
               
               await notifyTransaction('sent', btconAmount);
               await notifyPendingTransaction({ type: 'sent', amount: btconAmount });
               
               Alert.alert(
-                'Transaction envoyée',
-                `Transaction ID: ${txid.slice(0, 10)}...\n\nVoir sur l'explorer: ${explorerUrl}`,
-                [
-                  {
-                    text: 'OK',
-                    onPress: () => router.back(),
-                  },
-                ]
+                'Transaction envoyée ✓',
+                `TX: ${txid.slice(0, 16)}...\n\nExplorer: ${explorerUrl}`,
+                [{ text: 'OK', onPress: () => router.back() }]
               );
 
               setToAddress('');
             } catch (error) {
               console.error('Error sending transaction:', error);
-              Alert.alert('Error', error instanceof Error ? error.message : 'Failed to send transaction');
+              Alert.alert('Erreur', error instanceof Error ? error.message : 'Échec de la transaction');
             } finally {
               setIsSending(false);
             }
@@ -214,36 +302,40 @@ export default function SendScreen() {
       const parts = uri.split('?');
       extractedAddress = parts[0];
       
-      console.log('Adresse extraite de bitcoin URI:', extractedAddress);
-      
       if (parts.length > 1) {
-        const params = new URLSearchParams(parts[1]);
-        const amountBtc = params.get('amount');
+        const qsParams = new URLSearchParams(parts[1]);
+        const amountBtc = qsParams.get('amount');
         
         if (amountBtc) {
           extractedAmount = Math.floor(parseFloat(amountBtc) * 100000000);
-          console.log('Montant extrait:', extractedAmount, 'satoshis');
         }
       }
     }
-    
-    console.log('Adresse finale:', extractedAddress);
-    console.log('Montant final:', extractedAmount);
     
     setToAddress(extractedAddress);
     
     if (extractedAmount > 0) {
       setAmountBtcon(extractedAmount);
-      
       setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }, 100);
     }
   }, [hasScanned, scrollViewRef]);
 
+  const formatSatsDisplay = useCallback((sats: number): string => {
+    if (sats >= 100_000_000) {
+      return `${(sats / 100_000_000).toFixed(4)} BTC`;
+    }
+    return `${sats.toLocaleString()} sats`;
+  }, []);
 
-
-
+  const timeSinceRefresh = useMemo(() => {
+    if (!lastFeeRefresh) return '';
+    const seconds = Math.floor((Date.now() - lastFeeRefresh) / 1000);
+    if (seconds < 5) return 'à l\'instant';
+    if (seconds < 60) return `il y a ${seconds}s`;
+    return `il y a ${Math.floor(seconds / 60)}min`;
+  }, [lastFeeRefresh]);
 
   return (
     <View style={styles.container}>
@@ -284,28 +376,103 @@ export default function SendScreen() {
             <Text style={styles.inputLabel}>Destinataire</Text>
             <View style={styles.inputRow}>
               <TextInput
-                style={styles.input}
+                style={[
+                  styles.input,
+                  addressValid === false && styles.inputError,
+                  addressValid === true && styles.inputValid,
+                ]}
                 value={toAddress}
                 onChangeText={setToAddress}
-                placeholder="Adresse Btcon"
-                placeholderTextColor="#666"
+                placeholder="Adresse Bitcoin (bc1q...)"
+                placeholderTextColor="#555"
                 autoCapitalize="none"
                 autoCorrect={false}
                 testID="recipient-input"
               />
             </View>
+            {addressValid === false && (
+              <View style={styles.validationRow}>
+                <AlertTriangle color="#FF4444" size={12} />
+                <Text style={styles.validationError}>Adresse invalide</Text>
+              </View>
+            )}
+            {addressValid === true && toAddress.startsWith('bc1q') && (
+              <Text style={styles.validationSuccess}>SegWit natif (P2WPKH)</Text>
+            )}
+            {addressValid === true && toAddress.startsWith('bc1p') && (
+              <Text style={styles.validationSuccess}>Taproot (P2TR)</Text>
+            )}
           </View>
-
-
         </View>
 
         {totalAmount > 0 && (
           <View style={styles.totalContainer}>
-            <Text style={styles.totalLabel}>Montant:</Text>
+            <Text style={styles.totalLabel}>Montant</Text>
             <View style={styles.totalRow}>
               <Text style={[styles.totalAmount, { fontSize: responsive.scale(32) }]}>{totalAmount.toLocaleString()}</Text>
               <Text style={[styles.totalUnit, { fontSize: responsive.scale(14) }]}>Btcon</Text>
             </View>
+            <Text style={styles.totalEuroHint}>≈ {btconToEuro(totalAmount, btcPrice)}€</Text>
+          </View>
+        )}
+
+        {totalAmount > 0 && feeOptions.length > 0 && (
+          <View style={styles.priorityCard}>
+            <View style={styles.priorityHeader}>
+              <Text style={styles.priorityTitle}>Priorité</Text>
+              <TouchableOpacity
+                style={styles.refreshButton}
+                onPress={() => void fetchRecommendedFees()}
+                disabled={isLoadingFees}
+                testID="refresh-fees-button"
+              >
+                {isLoadingFees ? (
+                  <ActivityIndicator color="#FF8C00" size="small" />
+                ) : (
+                  <RefreshCw color={feeStale ? '#FF4444' : '#666'} size={16} />
+                )}
+              </TouchableOpacity>
+            </View>
+            {feeStale && (
+              <View style={styles.staleWarning}>
+                <AlertTriangle color="#FFaa00" size={12} />
+                <Text style={styles.staleWarningText}>Taux peut-être obsolète</Text>
+              </View>
+            )}
+            <View style={styles.priorityOptions}>
+              {feeOptions.map((option) => {
+                const isSelected = selectedPriority === option.key;
+                return (
+                  <TouchableOpacity
+                    key={option.key}
+                    style={[
+                      styles.priorityOption,
+                      isSelected && { borderColor: option.color, backgroundColor: `${option.color}15` },
+                    ]}
+                    onPress={() => setSelectedPriority(option.key)}
+                    testID={`fee-priority-${option.key}`}
+                  >
+                    <View style={styles.priorityIconRow}>
+                      {option.key === 'fast' && <Zap color={isSelected ? option.color : '#666'} size={16} />}
+                      {option.key === 'normal' && <Clock color={isSelected ? option.color : '#666'} size={16} />}
+                      {option.key === 'economy' && <Turtle color={isSelected ? option.color : '#666'} size={16} />}
+                      <Text style={[styles.priorityLabel, isSelected && { color: option.color }]}>
+                        {option.label}
+                      </Text>
+                    </View>
+                    <Text style={[styles.prioritySublabel, isSelected && { color: '#999' }]}>
+                      {option.sublabel}
+                    </Text>
+                    <Text style={[styles.priorityRate, isSelected && { color: option.color }]}>
+                      {option.rate} sat/vB
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            {timeSinceRefresh ? (
+              <Text style={styles.refreshTimestamp}>Mis à jour {timeSinceRefresh}</Text>
+            ) : null}
           </View>
         )}
 
@@ -317,30 +484,86 @@ export default function SendScreen() {
                 <ActivityIndicator color="#FF8C00" />
               ) : (
                 <View style={styles.feesRightColumn}>
-                  <Text style={styles.feesValueBig}>{feeDetails?.networkFee?.toLocaleString() ?? '...'} Btcon</Text>
-                  <Text style={styles.feesEuroValue}>= {btconToEuro(feeDetails?.networkFee ?? 0, btcPrice)}€</Text>
+                  <Text style={styles.feesValueBig}>
+                    {feeDetails ? formatSatsDisplay(feeDetails.networkFee) : '...'}
+                  </Text>
+                  {feeDetails && (
+                    <Text style={styles.feesEuroValue}>≈ {btconToEuro(feeDetails.networkFee, btcPrice)}€</Text>
+                  )}
                 </View>
               )}
             </View>
 
             <View style={styles.feesDivider} />
 
-            <View style={styles.feesRow}>
-              <Text style={styles.feesLeftLabel}>Taux réseau</Text>
-              <View style={styles.feesRightColumn}>
-                <Text style={styles.feesValueBig}>{feeDetails?.feeRate?.toFixed(2) ?? '...'} sat/vB</Text>
+            <TouchableOpacity
+              style={styles.feesRow}
+              onPress={() => setShowFeeDetails(!showFeeDetails)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.detailsToggle}>
+                <Text style={styles.feesLeftLabel}>Détails techniques</Text>
+                {showFeeDetails ? (
+                  <ChevronUp color="#666" size={14} />
+                ) : (
+                  <ChevronDown color="#666" size={14} />
+                )}
               </View>
-            </View>
+              <View style={styles.feesRightColumn}>
+                <Text style={styles.feesValueBig}>{feeDetails?.feeRate ?? '...'} sat/vB</Text>
+              </View>
+            </TouchableOpacity>
+
+            {showFeeDetails && feeDetails && (
+              <View style={styles.technicalDetails}>
+                <View style={styles.techRow}>
+                  <Text style={styles.techLabel}>Taille estimée (vSize)</Text>
+                  <Text style={styles.techValue}>{feeDetails.vSize} vBytes</Text>
+                </View>
+                <View style={styles.techRow}>
+                  <Text style={styles.techLabel}>Inputs utilisés</Text>
+                  <Text style={styles.techValue}>{feeDetails.inputCount} UTXO{feeDetails.inputCount > 1 ? 's' : ''}</Text>
+                </View>
+                <View style={styles.techRow}>
+                  <Text style={styles.techLabel}>Type d'adresse</Text>
+                  <Text style={styles.techValue}>P2WPKH (SegWit natif)</Text>
+                </View>
+                <View style={styles.techRow}>
+                  <Text style={styles.techLabel}>Calcul</Text>
+                  <Text style={styles.techValue}>{feeDetails.vSize} × {feeDetails.feeRate} = {feeDetails.networkFee} sats</Text>
+                </View>
+                <View style={styles.techRow}>
+                  <Text style={styles.techLabel}>En BTC</Text>
+                  <Text style={styles.techValue}>{(feeDetails.networkFee / 100_000_000).toFixed(8)} BTC</Text>
+                </View>
+              </View>
+            )}
 
             <View style={styles.feesDivider} />
 
             <View style={styles.feesRow}>
-              <Text style={styles.feesLeftLabel}>Total à déduire</Text>
+              <Text style={[styles.feesLeftLabel, { fontWeight: '800' as const }]}>Total à déduire</Text>
               <View style={styles.feesRightColumn}>
-                <Text style={styles.feesValueBig}>{feeDetails?.totalDebit?.toLocaleString() ?? '...'} Btcon</Text>
-                <Text style={styles.feesEuroValue}>= {btconToEuro(feeDetails?.totalDebit ?? 0, btcPrice)}€</Text>
+                <Text style={[styles.feesValueBig, { fontSize: 18 }]}>
+                  {feeDetails ? feeDetails.totalDebit.toLocaleString() : '...'} sats
+                </Text>
+                {feeDetails && (
+                  <>
+                    <Text style={styles.feesEuroValue}>= {(feeDetails.totalDebit / 100_000_000).toFixed(8)} BTC</Text>
+                    <Text style={styles.feesEuroValue}>≈ {btconToEuro(feeDetails.totalDebit, btcPrice)}€</Text>
+                  </>
+                )}
               </View>
             </View>
+
+            {feeDetails && feeDetails.totalDebit > balance && (
+              <View style={styles.insufficientWarning}>
+                <AlertTriangle color="#FF4444" size={14} />
+                <Text style={styles.insufficientText}>
+                  Fonds insuffisants (manque {(feeDetails.totalDebit - balance).toLocaleString()} sats)
+                </Text>
+              </View>
+            )}
           </View>
         )}
 
@@ -388,28 +611,28 @@ export default function SendScreen() {
           </View>
         )}
 
-
-
-        {toAddress.trim() !== '' && totalAmount > 0 && (
-          <TouchableOpacity
-            style={[styles.sendButton, { alignSelf: 'center', width: '100%', maxWidth: responsive.isDesktop ? 520 : responsive.isTablet ? 460 : undefined }, isSending && styles.sendButtonDisabled]}
-            onPress={handleSend}
-            disabled={isSending}
-            testID="send-transaction-button"
-          >
-            {isSending ? (
-              <ActivityIndicator color="#FFF" />
-            ) : (
-              <>
-                <Send color="#FFF" size={20} />
-                <Text style={styles.sendButtonText}>Envoyer</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity
+          style={[
+            styles.sendButton,
+            { alignSelf: 'center', width: '100%', maxWidth: responsive.isDesktop ? 520 : responsive.isTablet ? 460 : undefined },
+            (!canSend || isSending) && styles.sendButtonDisabled,
+          ]}
+          onPress={handleSend}
+          disabled={!canSend || isSending}
+          testID="send-transaction-button"
+        >
+          {isSending ? (
+            <ActivityIndicator color="#FFF" />
+          ) : (
+            <>
+              <Send color="#FFF" size={20} />
+              <Text style={styles.sendButtonText}>
+                {sendDisabledReason ?? 'Envoyer'}
+              </Text>
+            </>
+          )}
+        </TouchableOpacity>
       </ScrollView>
-
-
     </View>
   );
 }
@@ -459,116 +682,12 @@ const styles = StyleSheet.create({
   placeholder: {
     width: 40,
   },
-  searchUsersButton: {
-    padding: 8,
-  },
-  followingSection: {
-    marginBottom: 24,
-  },
-  followingSectionTitle: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: '700' as const,
-    marginBottom: 12,
-    paddingLeft: 4,
-  },
-  followingList: {
-    gap: 12,
-    paddingRight: 24,
-  },
-  followingCard: {
-    backgroundColor: '#0f0f0f',
-    borderRadius: 20,
-    padding: 18,
-    alignItems: 'center',
-    gap: 10,
-    minWidth: 110,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 140, 0, 0.15)',
-    shadowColor: '#FF8C00',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  followingAvatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#FF8C00',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#FF8C00',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  followingAvatarText: {
-    color: '#000',
-    fontSize: 28,
-    fontWeight: '900' as const,
-  },
-  followingUsername: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700' as const,
-    letterSpacing: 0.3,
-  },
   scrollView: {
     flex: 1,
   },
   content: {
     paddingVertical: 12,
     paddingBottom: 40,
-  },
-  balanceCard: {
-    backgroundColor: '#0f0f0f',
-    borderRadius: 24,
-    padding: 28,
-    marginBottom: 20,
-    alignItems: 'center',
-    shadowColor: '#FF8C00',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 8,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 140, 0, 0.3)',
-  },
-  balanceLabel: {
-    color: '#FFF',
-    fontSize: 14,
-    marginBottom: 12,
-    fontWeight: '600' as const,
-    letterSpacing: 0.5,
-  },
-  balanceRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 12,
-  },
-  balanceAmount: {
-    color: '#FFF',
-    fontSize: 32,
-    fontWeight: '900' as const,
-  },
-  balanceUnit: {
-    color: '#FF8C00',
-    fontSize: 14,
-    fontWeight: '900' as const,
-  },
-  balanceSats: {
-    color: '#999',
-    fontSize: 12,
-    marginTop: 8,
-    fontWeight: '500' as const,
-  },
-  balanceEuro: {
-    color: '#FF8C00',
-    fontSize: 14,
-    marginTop: 6,
-    fontWeight: '700' as const,
   },
   formCard: {
     backgroundColor: '#0f0f0f',
@@ -592,164 +711,41 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600' as const,
   },
-  labelRow: {
+  inputRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    gap: 8,
     alignItems: 'center',
-    marginBottom: 4,
   },
-  resetButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: '#2a2a2a',
-    borderRadius: 8,
+  input: {
+    flex: 1,
+    backgroundColor: '#000000',
+    borderRadius: 16,
+    padding: 18,
+    color: '#FFFFFF',
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
-  resetText: {
-    color: '#FF8C00',
-    fontSize: 12,
+  inputError: {
+    borderColor: 'rgba(255, 68, 68, 0.5)',
+  },
+  inputValid: {
+    borderColor: 'rgba(0, 204, 102, 0.3)',
+  },
+  validationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  validationError: {
+    color: '#FF4444',
+    fontSize: 11,
     fontWeight: '600' as const,
   },
-  tokensSection: {
-    marginBottom: 24,
-    backgroundColor: '#0f0f0f',
-    borderRadius: 28,
-    padding: 28,
-    marginTop: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  tokensLabel: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '700' as const,
-  },
-  tokensContainer: {
-    gap: 16,
-  },
-  topTokensRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 16,
-  },
-  bottomTokenRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
-  tokenWrapper: {
-    width: '35%',
-    alignItems: 'center',
-  },
-  tokenWrapper50k: {
-    width: '72%',
-    alignItems: 'center',
-  },
-  tokenCircle: {
-    width: '100%',
-    aspectRatio: 1,
-    backgroundColor: '#2a2a2a',
-    borderRadius: 1000,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 6,
-    borderColor: '#3a3a3a',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  token1000: {
-    backgroundColor: '#5B9BD5',
-    borderColor: '#75ADE0',
-  },
-  token5000: {
-    backgroundColor: '#FF9F47',
-    borderColor: '#FFB366',
-  },
-  token5000White: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#E0E0E0',
-  },
-  tokenValueWhite: {
-    color: '#000000',
-  },
-  tokenUnitWhite: {
-    color: '#000000',
-  },
-  tokenSquare: {
-    width: '100%',
-    aspectRatio: 1.3,
-    backgroundColor: '#E8451A',
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 6,
-    borderColor: '#F5693F',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  tokenSelected: {
-    backgroundColor: '#FF8C00',
-    borderColor: '#FFB347',
-    shadowColor: '#FF8C00',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  tokenValue: {
-    color: '#FFF',
-    fontSize: 28,
-    fontWeight: '900' as const,
-    textShadowColor: 'rgba(0, 0, 0, 0.5)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
-  },
-  tokenUnit: {
-    color: '#FFF',
+  validationSuccess: {
+    color: '#00CC66',
     fontSize: 11,
-    fontWeight: '700' as const,
-    marginTop: 4,
-    letterSpacing: 0.5,
-    textTransform: 'uppercase' as const,
-    opacity: 1,
-  },
-  countBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: '#000',
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    minWidth: 28,
-    alignItems: 'center',
-  },
-  countText: {
-    color: '#FFF',
-    fontSize: 12,
-    fontWeight: '700' as const,
-  },
-  addressInputCard: {
-    marginTop: 0,
-    padding: 20,
-    backgroundColor: '#0f0f0f',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 140, 0, 0.2)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    fontWeight: '600' as const,
   },
   totalContainer: {
     marginTop: 20,
@@ -781,52 +777,91 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '900' as const,
   },
-  inputRow: {
-    flexDirection: 'row',
-    gap: 8,
-    alignItems: 'center',
-  },
-  input: {
-    flex: 1,
-    backgroundColor: '#000000',
-    borderRadius: 16,
-    padding: 18,
-    color: '#FFFFFF',
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  inputIconBubble: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 140, 0, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 140, 0, 0.25)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  scanButton: {
-    backgroundColor: 'rgba(255, 140, 0, 0.1)',
-    borderRadius: 16,
-    padding: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 140, 0, 0.2)',
-  },
-  conversionText: {
+  totalEuroHint: {
     color: '#999',
-    fontSize: 11,
+    fontSize: 13,
     marginTop: 6,
     fontWeight: '500' as const,
   },
-  conversionTextEuro: {
-    color: '#FF8C00',
-    fontSize: 13,
-    marginTop: 6,
+  priorityCard: {
+    backgroundColor: '#0f0f0f',
+    borderRadius: 20,
+    padding: 20,
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  priorityHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  priorityTitle: {
+    color: '#FFF',
+    fontSize: 15,
     fontWeight: '700' as const,
+  },
+  refreshButton: {
+    padding: 8,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  staleWarning: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255, 170, 0, 0.1)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: 12,
+  },
+  staleWarningText: {
+    color: '#FFaa00',
+    fontSize: 11,
+    fontWeight: '600' as const,
+  },
+  priorityOptions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  priorityOption: {
+    flex: 1,
+    backgroundColor: '#0a0a0a',
+    borderRadius: 14,
+    padding: 12,
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  priorityIconRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  priorityLabel: {
+    color: '#999',
+    fontSize: 12,
+    fontWeight: '700' as const,
+  },
+  prioritySublabel: {
+    color: '#555',
+    fontSize: 10,
+    fontWeight: '500' as const,
+  },
+  priorityRate: {
+    color: '#666',
+    fontSize: 11,
+    fontWeight: '800' as const,
+    marginTop: 2,
+  },
+  refreshTimestamp: {
+    color: '#444',
+    fontSize: 10,
+    textAlign: 'center' as const,
+    marginTop: 10,
   },
   feesCard: {
     backgroundColor: '#0f0f0f',
@@ -853,11 +888,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600' as const,
   },
-  feesTransactionValue: {
-    color: '#FF8C00',
-    fontSize: 15,
-    fontWeight: '900' as const,
-  },
   feesLeftLabel: {
     color: '#999',
     fontSize: 14,
@@ -881,83 +911,61 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: 'rgba(255, 140, 0, 0.15)',
     marginVertical: 16,
+    width: '100%',
   },
-  feesAddressValue: {
-    color: '#FFF',
-    fontSize: 13,
-    fontWeight: '700' as const,
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-  },
-  labelWithReset: {
+  detailsToggle: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    gap: 6,
   },
-  summaryCard: {
-    backgroundColor: '#0f0f0f',
-    borderRadius: 28,
-    padding: 28,
-    marginBottom: 28,
-    gap: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  summaryLabel: {
-    color: '#999',
-    fontSize: 12,
-    fontWeight: '600' as const,
-    marginBottom: 8,
-  },
-  tokensListContainer: {
-    gap: 12,
-  },
-  tokenSummaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#000000',
+  technicalDetails: {
+    width: '100%',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
     borderRadius: 12,
     padding: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 140, 0, 0.2)',
+    marginTop: 12,
+    gap: 8,
   },
-  tokenSummaryText: {
-    color: '#FFF',
-    fontSize: 14,
-    fontWeight: '600' as const,
+  techRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  tokenSummaryCount: {
-    color: '#FF8C00',
-    fontSize: 14,
+  techLabel: {
+    color: '#666',
+    fontSize: 11,
+    fontWeight: '500' as const,
+  },
+  techValue: {
+    color: '#999',
+    fontSize: 11,
     fontWeight: '700' as const,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  insufficientWarning: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255, 68, 68, 0.1)',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 12,
+    width: '100%',
+  },
+  insufficientText: {
+    color: '#FF4444',
+    fontSize: 12,
+    fontWeight: '600' as const,
+    flex: 1,
   },
   actionButtonsRow: {
     flexDirection: 'row',
     gap: 12,
     marginBottom: 24,
+    marginTop: 16,
   },
   cameraButton: {
-    flex: 1,
-    backgroundColor: '#0f0f0f',
-    borderRadius: 20,
-    padding: 20,
-    alignItems: 'center',
-    gap: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 140, 0, 0.15)',
-  },
-  usersButton: {
     flex: 1,
     backgroundColor: '#0f0f0f',
     borderRadius: 20,
@@ -995,57 +1003,15 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   sendButtonDisabled: {
-    opacity: 0.5,
+    opacity: 0.4,
+    backgroundColor: '#555',
+    shadowOpacity: 0,
   },
   sendButtonText: {
     color: '#FFF',
-    fontSize: 17,
-    fontWeight: '900' as const,
-    letterSpacing: 0.5,
-  },
-  infoCard: {
-    backgroundColor: 'rgba(255, 140, 0, 0.05)',
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 140, 0, 0.1)',
-  },
-  infoText: {
-    color: '#666',
-    fontSize: 11,
-    lineHeight: 16,
-  },
-  feesContainer: {
-    marginTop: 20,
-    padding: 20,
-    backgroundColor: '#000000',
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 140, 0, 0.3)',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  feesLabel: {
-    color: '#FFF',
-    fontSize: 14,
-    fontWeight: '600' as const,
-  },
-  feesValue: {
-    color: '#FF8C00',
-    fontSize: 14,
-    fontWeight: '900' as const,
-  },
-  feesSubtext: {
-    color: '#666',
-    fontSize: 11,
-    marginTop: 2,
-  },
-  feesEuroText: {
-    color: '#FF8C00',
-    fontSize: 12,
-    fontWeight: '700' as const,
-    marginTop: 4,
+    fontSize: 15,
+    fontWeight: '800' as const,
+    letterSpacing: 0.3,
   },
   cameraContainer: {
     backgroundColor: '#0f0f0f',
@@ -1102,221 +1068,5 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.8,
     shadowRadius: 20,
     elevation: 10,
-  },
-  freeFeesContainer: {
-    alignItems: 'flex-end',
-    gap: 4,
-  },
-  freeFeesBadge: {
-    color: '#FFD700',
-    fontSize: 12,
-    fontWeight: '900' as const,
-    letterSpacing: 0.5,
-  },
-  freeFeesText: {
-    color: '#00FF88',
-    fontSize: 15,
-    fontWeight: '900' as const,
-  },
-  coinFlipSection: {
-    marginTop: 16,
-    alignItems: 'center',
-    width: '100%',
-  },
-  coinFlipTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(255, 215, 0, 0.1)',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 215, 0, 0.3)',
-  },
-  coinFlipTriggerText: {
-    color: '#FFD700',
-    fontSize: 14,
-    fontWeight: '700' as const,
-  },
-  coinFlipChoosing: {
-    alignItems: 'center',
-    gap: 12,
-    width: '100%',
-  },
-  coinFlipQuestion: {
-    color: '#FFF',
-    fontSize: 15,
-    fontWeight: '700' as const,
-  },
-  coinFlipChoices: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  coinFlipChoiceBtn: {
-    flex: 1,
-    backgroundColor: 'rgba(255, 140, 0, 0.12)',
-    borderRadius: 16,
-    paddingVertical: 18,
-    alignItems: 'center',
-    gap: 6,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 140, 0, 0.3)',
-  },
-  coinFlipChoiceEmoji: {
-    fontSize: 28,
-  },
-  coinFlipChoiceText: {
-    color: '#FF8C00',
-    fontSize: 16,
-    fontWeight: '800' as const,
-    letterSpacing: 1,
-  },
-  coinFlipAnimArea: {
-    alignItems: 'center',
-    gap: 16,
-    paddingVertical: 12,
-  },
-  miniCoin: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    borderWidth: 3,
-    borderColor: '#FF8C00',
-    backgroundColor: '#1a1a1a',
-    overflow: 'hidden',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#FFD700',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  miniCoinImage: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-  },
-  coinFlipFlippingText: {
-    color: '#FFD700',
-    fontSize: 14,
-    fontWeight: '600' as const,
-  },
-  coinFlipResultArea: {
-    alignItems: 'center',
-    gap: 12,
-    width: '100%',
-  },
-  coinFlipWonBadge: {
-    backgroundColor: 'rgba(0, 255, 136, 0.1)',
-    borderRadius: 16,
-    padding: 20,
-    alignItems: 'center',
-    gap: 6,
-    width: '100%',
-    borderWidth: 1.5,
-    borderColor: 'rgba(0, 255, 136, 0.3)',
-  },
-  coinFlipWonText: {
-    color: '#00FF88',
-    fontSize: 20,
-    fontWeight: '900' as const,
-  },
-  coinFlipResultDetail: {
-    color: 'rgba(255, 255, 255, 0.7)',
-    fontSize: 13,
-    textAlign: 'center' as const,
-  },
-  coinFlipFreeText: {
-    color: '#00FF88',
-    fontSize: 15,
-    fontWeight: '800' as const,
-    marginTop: 4,
-  },
-  coinFlipLostBadge: {
-    backgroundColor: 'rgba(220, 20, 60, 0.1)',
-    borderRadius: 16,
-    padding: 20,
-    alignItems: 'center',
-    gap: 6,
-    width: '100%',
-    borderWidth: 1.5,
-    borderColor: 'rgba(220, 20, 60, 0.3)',
-  },
-  coinFlipLostText: {
-    color: '#DC143C',
-    fontSize: 20,
-    fontWeight: '900' as const,
-  },
-  coinFlipLostFees: {
-    color: '#FF8C00',
-    fontSize: 14,
-    fontWeight: '700' as const,
-    marginTop: 4,
-  },
-  coinFlipRetry: {
-    backgroundColor: 'rgba(255, 215, 0, 0.1)',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 215, 0, 0.3)',
-  },
-  coinFlipRetryText: {
-    color: '#FFD700',
-    fontSize: 14,
-    fontWeight: '700' as const,
-  },
-  amountHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  switchModeButton: {
-    backgroundColor: 'rgba(255, 140, 0, 0.15)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 140, 0, 0.3)',
-  },
-  switchModeText: {
-    color: '#FF8C00',
-    fontSize: 12,
-    fontWeight: '700' as const,
-  },
-  currencyBadge: {
-    backgroundColor: '#FF8C00',
-    paddingHorizontal: 16,
-    paddingVertical: 18,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  currencyBadgeText: {
-    color: '#000',
-    fontSize: 14,
-    fontWeight: '900' as const,
-  },
-  headerWide: {
-    paddingHorizontal: 40,
-  },
-  tokensContainerWide: {
-    maxWidth: 600,
-    alignSelf: 'center',
-    width: '100%',
-  },
-  showTokensButton: {
-    backgroundColor: '#FF8C00',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  showTokensText: {
-    color: '#000',
-    fontSize: 16,
-    fontWeight: '700' as const,
   },
 });

@@ -234,8 +234,24 @@ export class EsploraService {
     }
   }
 
+  estimateVSize(numInputs: number = 1, numOutputs: number = 2, inputType: 'p2wpkh' | 'p2pkh' | 'p2sh-p2wpkh' | 'p2tr' = 'p2wpkh'): number {
+    const INPUT_VBYTES: Record<string, number> = {
+      'p2wpkh': 68,
+      'p2pkh': 148,
+      'p2sh-p2wpkh': 91,
+      'p2tr': 57.5,
+    };
+    const OUTPUT_BYTES = 31;
+    const OVERHEAD_VBYTES = 10.5;
+
+    const inputVBytes = INPUT_VBYTES[inputType] ?? 68;
+    const vSize = Math.ceil(numInputs * inputVBytes + numOutputs * OUTPUT_BYTES + OVERHEAD_VBYTES);
+    console.log(`[Fees] vSize estimate: ${numInputs} inputs (${inputType}) × ${inputVBytes} + ${numOutputs} outputs × ${OUTPUT_BYTES} + ${OVERHEAD_VBYTES} overhead = ${vSize} vB`);
+    return vSize;
+  }
+
   estimateFeesFromRate(feeRate: number, numInputs: number = 1, numOutputs: number = 2): { feeSats: number; feeBtc: number; txSize: number } {
-    const txSize = numInputs * 68 + numOutputs * 31 + 10;
+    const txSize = this.estimateVSize(numInputs, numOutputs, 'p2wpkh');
     const feeSats = Math.ceil(txSize * feeRate);
     const feeBtc = feeSats / 100_000_000;
     console.log(`[Fees] Estimated: ${txSize} vB × ${feeRate} sat/vB = ${feeSats} sats (${feeBtc} BTC)`);
