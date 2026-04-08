@@ -5,12 +5,10 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useWallet } from '@/contexts/WalletContext';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { useDeveloperHierarchy } from '@/contexts/DeveloperHierarchyContext';
-import { ArrowLeft, Send, X, Camera, Zap, Clock, Turtle, RefreshCw, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { ArrowLeft, Send, X, Camera, RefreshCw, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useResponsive } from '@/utils/responsive';
 import { btconToEuro, useBtcPrice } from '@/services/btcPrice';
-
-type FeePriority = 'fast' | 'normal' | 'economy';
 
 interface RecommendedFees {
   fastestFee: number;
@@ -19,19 +17,9 @@ interface RecommendedFees {
   minimumFee: number;
 }
 
-interface FeeOption {
-  key: FeePriority;
-  label: string;
-  sublabel: string;
-  rate: number;
-  color: string;
-}
-
 const FEE_REFRESH_INTERVAL = 30_000;
 const DUST_LIMIT = 546;
-const FEE_INCREASE_INTERVAL = 10_000;
-const FEE_INCREASE_STEP = 0.02;
-const MAX_FEE_MULTIPLIER = 1.5;
+
 
 export default function SendScreen() {
   const router = useRouter();
@@ -60,7 +48,6 @@ export default function SendScreen() {
     inputCount: number;
   } | null>(null);
   const [isEstimatingFees, setIsEstimatingFees] = useState(false);
-  const [selectedPriority, setSelectedPriority] = useState<FeePriority>('normal');
   const [recommendedFees, setRecommendedFees] = useState<RecommendedFees | null>(null);
   const [isLoadingFees, setIsLoadingFees] = useState(false);
   const [feeStale, setFeeStale] = useState(false);
@@ -68,10 +55,7 @@ export default function SendScreen() {
   const [showFeeDetails, setShowFeeDetails] = useState(false);
   const { btcPrice } = useBtcPrice();
   const feeRefreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [feeMultiplier, setFeeMultiplier] = useState<number>(1);
-  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
-  const screenOpenedAt = useRef<number>(Date.now());
-  const feeIncreaseTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
 
   const totalAmount = amountBtcon;
 
@@ -108,70 +92,13 @@ export default function SendScreen() {
     };
   }, [fetchRecommendedFees]);
 
-  useEffect(() => {
-    screenOpenedAt.current = Date.now();
 
-    feeIncreaseTimerRef.current = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - screenOpenedAt.current) / 1000);
-      setElapsedSeconds(elapsed);
-      const steps = Math.floor(elapsed / (FEE_INCREASE_INTERVAL / 1000));
-      const newMultiplier = Math.min(1 + steps * FEE_INCREASE_STEP, MAX_FEE_MULTIPLIER);
-      setFeeMultiplier(newMultiplier);
-    }, 1000);
-
-    return () => {
-      if (feeIncreaseTimerRef.current) {
-        clearInterval(feeIncreaseTimerRef.current);
-      }
-    };
-  }, []);
-
-  const feeOptions = useMemo((): FeeOption[] => {
-    if (!recommendedFees) return [];
-    return [
-      {
-        key: 'fast' as FeePriority,
-        label: 'Rapide',
-        sublabel: '~10 min',
-        rate: recommendedFees.fastestFee,
-        color: '#FF4444',
-      },
-      {
-        key: 'normal' as FeePriority,
-        label: 'Normal',
-        sublabel: '~30 min',
-        rate: recommendedFees.halfHourFee,
-        color: '#FF8C00',
-      },
-      {
-        key: 'economy' as FeePriority,
-        label: 'Économique',
-        sublabel: '~60 min',
-        rate: recommendedFees.hourFee,
-        color: '#00CC66',
-      },
-    ];
-  }, [recommendedFees]);
 
   const baseFeeRate = useMemo(() => {
-    const option = feeOptions.find(o => o.key === selectedPriority);
-    return option?.rate ?? recommendedFees?.halfHourFee ?? 0;
-  }, [feeOptions, selectedPriority, recommendedFees]);
+    return recommendedFees?.halfHourFee ?? 0;
+  }, [recommendedFees]);
 
-  const selectedFeeRate = useMemo(() => {
-    return Math.ceil(baseFeeRate * feeMultiplier);
-  }, [baseFeeRate, feeMultiplier]);
-
-  const feeIncreasePercent = useMemo(() => {
-    return Math.round((feeMultiplier - 1) * 100);
-  }, [feeMultiplier]);
-
-  const formatElapsed = useCallback((seconds: number): string => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    if (m > 0) return `${m}min ${s.toString().padStart(2, '0')}s`;
-    return `${s}s`;
-  }, []);
+  const selectedFeeRate = baseFeeRate;
 
   useEffect(() => {
     const updateFees = async () => {
@@ -278,11 +205,9 @@ export default function SendScreen() {
     const totalBtc = (feeDetails.totalDebit / 100_000_000).toFixed(8);
     const totalEur = btconToEuro(feeDetails.totalDebit, btcPrice);
 
-    const priorityLabel = feeOptions.find(o => o.key === selectedPriority)?.label ?? 'Normal';
-
     Alert.alert(
       'Confirmer la transaction',
-      `Destinataire: ${resolvedAddress.slice(0, 12)}...${resolvedAddress.slice(-6)}\n\nMontant: ${satsAmount.toLocaleString()} sats\n\nFrais réseau (${priorityLabel}): ${feeDetails.networkFee.toLocaleString()} sats\n= ${feeBtc} BTC ≈ ${feeEur}€\nTaux: ${feeDetails.feeRate} sat/vB | ${feeDetails.vSize} vB\n\nTotal débité: ${feeDetails.totalDebit.toLocaleString()} sats\n= ${totalBtc} BTC ≈ ${totalEur}€`,
+      `Destinataire: ${resolvedAddress.slice(0, 12)}...${resolvedAddress.slice(-6)}\n\nMontant: ${satsAmount.toLocaleString()} sats\n\nFrais réseau: ${feeDetails.networkFee.toLocaleString()} sats\n= ${feeBtc} BTC ≈ ${feeEur}€\nTaux: ${feeDetails.feeRate} sat/vB | ${feeDetails.vSize} vB\n\nTotal débité: ${feeDetails.totalDebit.toLocaleString()} sats\n= ${totalBtc} BTC ≈ ${totalEur}€`,
       [
         { text: 'Annuler', style: 'cancel' },
         {
@@ -456,10 +381,10 @@ export default function SendScreen() {
           </View>
         )}
 
-        {totalAmount > 0 && feeOptions.length > 0 && (
-          <View style={styles.priorityCard}>
-            <View style={styles.priorityHeader}>
-              <Text style={styles.priorityTitle}>Priorité</Text>
+        {totalAmount > 0 && recommendedFees && (
+          <View style={styles.feeRateCard}>
+            <View style={styles.feeRateHeader}>
+              <Text style={styles.feeRateTitle}>Taux réseau</Text>
               <TouchableOpacity
                 style={styles.refreshButton}
                 onPress={() => void fetchRecommendedFees()}
@@ -479,63 +404,13 @@ export default function SendScreen() {
                 <Text style={styles.staleWarningText}>Taux peut-être obsolète</Text>
               </View>
             )}
-            <View style={styles.priorityOptions}>
-              {feeOptions.map((option) => {
-                const isSelected = selectedPriority === option.key;
-                return (
-                  <TouchableOpacity
-                    key={option.key}
-                    style={[
-                      styles.priorityOption,
-                      isSelected && { borderColor: option.color, backgroundColor: `${option.color}15` },
-                    ]}
-                    onPress={() => setSelectedPriority(option.key)}
-                    testID={`fee-priority-${option.key}`}
-                  >
-                    <View style={styles.priorityIconRow}>
-                      {option.key === 'fast' && <Zap color={isSelected ? option.color : '#666'} size={16} />}
-                      {option.key === 'normal' && <Clock color={isSelected ? option.color : '#666'} size={16} />}
-                      {option.key === 'economy' && <Turtle color={isSelected ? option.color : '#666'} size={16} />}
-                      <Text style={[styles.priorityLabel, isSelected && { color: option.color }]}>
-                        {option.label}
-                      </Text>
-                    </View>
-                    <Text style={[styles.prioritySublabel, isSelected && { color: '#999' }]}>
-                      {option.sublabel}
-                    </Text>
-                    <Text style={[styles.priorityRate, isSelected && { color: option.color }]}>
-                      {option.rate} sat/vB
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+            <View style={styles.feeRateValue}>
+              <Text style={styles.feeRateNumber}>{selectedFeeRate}</Text>
+              <Text style={styles.feeRateUnit}>sat/vB</Text>
             </View>
             {timeSinceRefresh ? (
               <Text style={styles.refreshTimestamp}>Mis à jour {timeSinceRefresh}</Text>
             ) : null}
-
-            {feeMultiplier > 1 && (
-              <View style={styles.timeWarningContainer}>
-                <View style={styles.timeWarningHeader}>
-                  <Clock color="#FF4444" size={14} />
-                  <Text style={styles.timeWarningTitle}>Surcoût temps d'attente</Text>
-                </View>
-                <View style={styles.timeWarningBar}>
-                  <View style={[
-                    styles.timeWarningBarFill,
-                    { width: `${Math.min(((feeMultiplier - 1) / (MAX_FEE_MULTIPLIER - 1)) * 100, 100)}%` }
-                  ]} />
-                </View>
-                <View style={styles.timeWarningRow}>
-                  <Text style={styles.timeWarningText}>
-                    +{feeIncreasePercent}% depuis {formatElapsed(elapsedSeconds)}
-                  </Text>
-                  <Text style={styles.timeWarningRate}>
-                    {baseFeeRate} → {selectedFeeRate} sat/vB
-                  </Text>
-                </View>
-              </View>
-            )}
           </View>
         )}
 
@@ -846,7 +721,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontWeight: '500' as const,
   },
-  priorityCard: {
+  feeRateCard: {
     backgroundColor: '#0f0f0f',
     borderRadius: 20,
     padding: 20,
@@ -854,16 +729,33 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.05)',
   },
-  priorityHeader: {
+  feeRateHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 14,
   },
-  priorityTitle: {
+  feeRateTitle: {
     color: '#FFF',
     fontSize: 15,
     fontWeight: '700' as const,
+  },
+  feeRateValue: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 6,
+    justifyContent: 'center',
+    paddingVertical: 8,
+  },
+  feeRateNumber: {
+    color: '#FF8C00',
+    fontSize: 28,
+    fontWeight: '900' as const,
+  },
+  feeRateUnit: {
+    color: '#999',
+    fontSize: 14,
+    fontWeight: '600' as const,
   },
   refreshButton: {
     padding: 8,
@@ -885,93 +777,14 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600' as const,
   },
-  priorityOptions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  priorityOption: {
-    flex: 1,
-    backgroundColor: '#0a0a0a',
-    borderRadius: 14,
-    padding: 12,
-    alignItems: 'center',
-    gap: 4,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  priorityIconRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  priorityLabel: {
-    color: '#999',
-    fontSize: 12,
-    fontWeight: '700' as const,
-  },
-  prioritySublabel: {
-    color: '#555',
-    fontSize: 10,
-    fontWeight: '500' as const,
-  },
-  priorityRate: {
-    color: '#666',
-    fontSize: 11,
-    fontWeight: '800' as const,
-    marginTop: 2,
-  },
+
   refreshTimestamp: {
     color: '#444',
     fontSize: 10,
     textAlign: 'center' as const,
     marginTop: 10,
   },
-  timeWarningContainer: {
-    backgroundColor: 'rgba(255, 68, 68, 0.08)',
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 68, 68, 0.2)',
-    gap: 8,
-  },
-  timeWarningHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  timeWarningTitle: {
-    color: '#FF6666',
-    fontSize: 12,
-    fontWeight: '700' as const,
-  },
-  timeWarningBar: {
-    height: 4,
-    backgroundColor: 'rgba(255, 68, 68, 0.15)',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  timeWarningBarFill: {
-    height: '100%',
-    backgroundColor: '#FF4444',
-    borderRadius: 2,
-  },
-  timeWarningRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  timeWarningText: {
-    color: '#FF6666',
-    fontSize: 11,
-    fontWeight: '600' as const,
-  },
-  timeWarningRate: {
-    color: '#FF8888',
-    fontSize: 11,
-    fontWeight: '800' as const,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
+
   feesCard: {
     backgroundColor: '#0f0f0f',
     borderRadius: 20,
