@@ -139,19 +139,19 @@ export default function CoinFlipScreen() {
       Animated.parallel([
         Animated.timing(coinRotation, {
           toValue: rotation,
-          duration: 1500,
+          duration: 900,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
         Animated.timing(coinPosition, {
           toValue: 1000,
-          duration: 1500,
+          duration: 900,
           easing: Easing.in(Easing.cubic),
           useNativeDriver: true,
         }),
         Animated.timing(coinOpacity, {
           toValue: 0,
-          duration: 1500,
+          duration: 900,
           easing: Easing.in(Easing.ease),
           useNativeDriver: true,
         }),
@@ -171,7 +171,7 @@ export default function CoinFlipScreen() {
 
       Animated.timing(coinRotation, {
         toValue: finalRotation,
-        duration: 2000,
+        duration: 1200,
         easing: Easing.out(Easing.quad),
         useNativeDriver: true,
       }).start(() => {

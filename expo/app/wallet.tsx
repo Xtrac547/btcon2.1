@@ -19,7 +19,7 @@ import { useBtcPrice, btconToEuro } from '@/services/btcPrice';
 export default function WalletScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { balance, address, refreshBalance } = useWallet();
+  const { balance, address, refreshBalance, transactions } = useWallet();
   const { notifyTransaction } = useNotifications();
 
   const responsive = useResponsive();
@@ -260,7 +260,7 @@ export default function WalletScreen() {
     setHasScanned(true);
     setShowScanner(false);
     
-    let addr = data;
+    let addr = decodeURIComponent(data).trim();
     let amount = 0;
     
     if (addr.toLowerCase().startsWith('bitcoin:')) {
@@ -314,13 +314,15 @@ export default function WalletScreen() {
           >
             <RefreshCw color="#FF8C00" size={20} />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.topButton}
-            onPress={() => router.push('/coin-flip')}
-            testID="coin-flip-button"
-          >
-            <Coins color="#FF8C00" size={20} />
-          </TouchableOpacity>
+          {transactions.length > 0 && (
+            <TouchableOpacity
+              style={styles.topButton}
+              onPress={() => router.push('/coin-flip')}
+              testID="coin-flip-button"
+            >
+              <Coins color="#FF8C00" size={20} />
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={styles.topButton}
             onPress={() => router.push('/settings')}

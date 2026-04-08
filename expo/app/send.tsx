@@ -259,7 +259,7 @@ export default function SendScreen() {
     
     console.log('QR Code scanné:', data);
     
-    let extractedAddress = data.trim();
+    let extractedAddress = decodeURIComponent(data).trim();
     let extractedAmount = 0;
     
     if (extractedAddress.toLowerCase().startsWith('bitcoin:')) {
