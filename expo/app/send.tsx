@@ -287,11 +287,8 @@ export default function SendScreen() {
     }
   }, [hasScanned, scrollViewRef]);
 
-  const formatSatsDisplay = useCallback((sats: number): string => {
-    if (sats >= 100_000_000) {
-      return `${(sats / 100_000_000).toFixed(4)} BTC`;
-    }
-    return `${sats.toLocaleString()} sats`;
+  const formatBtconDisplay = useCallback((sats: number): string => {
+    return `${(sats / 100_000_000).toFixed(8)} Btcon`;
   }, []);
 
   const timeSinceRefresh = useMemo(() => {
@@ -423,7 +420,7 @@ export default function SendScreen() {
               ) : (
                 <View style={styles.feesRightColumn}>
                   <Text style={styles.feesValueBig}>
-                    {feeDetails ? formatSatsDisplay(feeDetails.networkFee) : '...'}
+                    {feeDetails ? formatBtconDisplay(feeDetails.networkFee) : '...'}
                   </Text>
                   {feeDetails && (
                     <Text style={styles.feesEuroValue}>≈ {btconToEuro(feeDetails.networkFee, btcPrice)}€</Text>
@@ -468,11 +465,11 @@ export default function SendScreen() {
                 </View>
                 <View style={styles.techRow}>
                   <Text style={styles.techLabel}>Calcul</Text>
-                  <Text style={styles.techValue}>{feeDetails.vSize} × {feeDetails.feeRate} = {feeDetails.networkFee} sats</Text>
+                  <Text style={styles.techValue}>{feeDetails.vSize} × {feeDetails.feeRate} = {formatBtconDisplay(feeDetails.networkFee)}</Text>
                 </View>
                 <View style={styles.techRow}>
                   <Text style={styles.techLabel}>En BTC</Text>
-                  <Text style={styles.techValue}>{(feeDetails.networkFee / 100_000_000).toFixed(8)} BTC</Text>
+                  <Text style={styles.techValue}>{(feeDetails.networkFee / 100_000_000).toFixed(8)} Btcon</Text>
                 </View>
               </View>
             )}
@@ -483,11 +480,11 @@ export default function SendScreen() {
               <Text style={[styles.feesLeftLabel, { fontWeight: '800' as const }]}>Total à déduire</Text>
               <View style={styles.feesRightColumn}>
                 <Text style={[styles.feesValueBig, { fontSize: 18 }]}>
-                  {feeDetails ? feeDetails.totalDebit.toLocaleString() : '...'} sats
+                  {feeDetails ? formatBtconDisplay(feeDetails.totalDebit) : '...'}
                 </Text>
                 {feeDetails && (
                   <>
-                    <Text style={styles.feesEuroValue}>= {(feeDetails.totalDebit / 100_000_000).toFixed(8)} BTC</Text>
+                    <Text style={styles.feesEuroValue}>= {(feeDetails.totalDebit / 100_000_000).toFixed(8)} Btcon</Text>
                     <Text style={styles.feesEuroValue}>≈ {btconToEuro(feeDetails.totalDebit, btcPrice)}€</Text>
                   </>
                 )}
