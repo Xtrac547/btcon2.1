@@ -288,7 +288,7 @@ export default function SendScreen() {
   }, [hasScanned, scrollViewRef]);
 
   const formatBtconDisplay = useCallback((sats: number): string => {
-    return `${sats} btcon = ${(sats / 100_000_000).toFixed(8)} Btcon`;
+    return `${sats} btcon`;
   }, []);
 
   const timeSinceRefresh = useMemo(() => {
