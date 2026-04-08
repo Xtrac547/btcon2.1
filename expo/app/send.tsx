@@ -179,10 +179,10 @@ export default function SendScreen() {
     if (!toAddress.trim()) return 'Adresse requise';
     if (addressValid === false) return 'Adresse invalide';
     if (totalAmount <= 0) return 'Montant requis';
-    if (totalAmount < DUST_LIMIT) return `Minimum: ${DUST_LIMIT} sats`;
+    if (totalAmount < DUST_LIMIT) return `Minimum: ${(DUST_LIMIT / 100_000_000).toFixed(8)} Btcon`;
     if (isEstimatingFees) return 'Calcul des frais...';
     if (!feeDetails) return 'Frais indisponibles';
-    if (feeDetails.totalDebit > balance) return `Fonds insuffisants (manque ${(feeDetails.totalDebit - balance).toLocaleString()} sats)`;
+    if (feeDetails.totalDebit > balance) return `Fonds insuffisants (manque ${((feeDetails.totalDebit - balance) / 100_000_000).toFixed(8)} Btcon)`;
     return null;
   }, [toAddress, addressValid, totalAmount, feeDetails, balance, isEstimatingFees]);
 
