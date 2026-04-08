@@ -58,8 +58,13 @@ export default function SendScreen() {
           totalDebit: estimate.totalDebit,
           feeRate: estimate.feeRate,
         });
-      } catch (error) {
-        console.error('Error estimating fees:', error);
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : String(error);
+        if (msg.includes('No UTXOs available')) {
+          console.log('No confirmed UTXOs yet - wallet may be empty or pending confirmation');
+        } else {
+          console.error('Error estimating fees:', error);
+        }
         setFeeDetails(null);
       } finally {
         setIsEstimatingFees(false);
