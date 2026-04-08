@@ -474,22 +474,7 @@ export default function SendScreen() {
               </View>
             )}
 
-            <View style={styles.feesDivider} />
 
-            <View style={styles.feesRow}>
-              <Text style={[styles.feesLeftLabel, { fontWeight: '800' as const }]}>Total à déduire</Text>
-              <View style={styles.feesRightColumn}>
-                <Text style={[styles.feesValueBig, { fontSize: 18 }]}>
-                  {feeDetails ? formatBtconDisplay(feeDetails.totalDebit) : '...'}
-                </Text>
-                {feeDetails && (
-                  <>
-                    <Text style={styles.feesEuroValue}>= {(feeDetails.totalDebit / 100_000_000).toFixed(8)} Btcon</Text>
-                    <Text style={styles.feesEuroValue}>≈ {btconToEuro(feeDetails.totalDebit, btcPrice)}€</Text>
-                  </>
-                )}
-              </View>
-            </View>
 
             {feeDetails && feeDetails.totalDebit > balance && (
               <View style={styles.insufficientWarning}>
