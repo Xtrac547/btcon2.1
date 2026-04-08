@@ -31,7 +31,6 @@ export default function SendScreen() {
   const [amountBtcon, setAmountBtcon] = useState<number>(params.preselectedAmount ? parseInt(params.preselectedAmount, 10) : 0);
   const [feeDetails, setFeeDetails] = useState<{
     networkFee: number;
-    adminFee: number;
     totalFee: number;
     totalDebit: number;
     feeRate: number;
@@ -53,7 +52,6 @@ export default function SendScreen() {
         const estimate = await estimateTransactionCosts(Math.floor(totalAmount));
         setFeeDetails({
           networkFee: estimate.networkFee,
-          adminFee: estimate.adminFee,
           totalFee: estimate.totalFee,
           totalDebit: estimate.totalDebit,
           feeRate: estimate.feeRate,
@@ -113,7 +111,6 @@ export default function SendScreen() {
         const estimate = await estimateTransactionCosts(satsAmount);
         currentFeeDetails = {
           networkFee: estimate.networkFee,
-          adminFee: estimate.adminFee,
           totalFee: estimate.totalFee,
           totalDebit: estimate.totalDebit,
           feeRate: estimate.feeRate,
@@ -125,9 +122,7 @@ export default function SendScreen() {
       }
     }
 
-    const feeMessage = isDevAddress
-      ? '\n\n✨ Mode développeur : bonus admin désactivé'
-      : `\n\nFrais de transaction = ${currentFeeDetails.networkFee.toLocaleString()} Btcon = ${btconToEuro(currentFeeDetails.networkFee, btcPrice)}€\nBtcon = ${currentFeeDetails.adminFee.toLocaleString()} = ${btconToEuro(currentFeeDetails.adminFee, btcPrice)}€`;
+    const feeMessage = `\n\nFrais de transaction: ${currentFeeDetails.networkFee.toLocaleString()} Btcon = ${btconToEuro(currentFeeDetails.networkFee, btcPrice)}€`;
 
     Alert.alert(
       'Confirmer la transaction',
@@ -302,7 +297,7 @@ export default function SendScreen() {
                 <ActivityIndicator color="#FF8C00" />
               ) : (
                 <View style={styles.feesRightColumn}>
-                  <Text style={styles.feesValueBig}>{feeDetails?.networkFee?.toLocaleString() ?? '0'} Btcon</Text>
+                  <Text style={styles.feesValueBig}>{feeDetails?.networkFee?.toLocaleString() ?? '...'} Btcon</Text>
                   <Text style={styles.feesEuroValue}>= {btconToEuro(feeDetails?.networkFee ?? 0, btcPrice)}€</Text>
                 </View>
               )}
@@ -311,29 +306,19 @@ export default function SendScreen() {
             <View style={styles.feesDivider} />
 
             <View style={styles.feesRow}>
-              <Text style={styles.feesLeftLabel}>Btcon</Text>
-              <View style={styles.feesRightColumn}>
-                <Text style={styles.feesValueBig}>{feeDetails?.networkFee?.toLocaleString() ?? '0'}</Text>
-                <Text style={styles.feesEuroValue}>≈ {btconToEuro(feeDetails?.networkFee ?? 0, btcPrice)}€</Text>
-              </View>
-            </View>
-
-            <View style={styles.feesDivider} />
-
-            <View style={styles.feesRow}>
-              <Text style={styles.feesLeftLabel}>Bonus admin</Text>
-              <View style={styles.feesRightColumn}>
-                <Text style={styles.feesValueBig}>{feeDetails?.adminFee?.toLocaleString() ?? '0'} Btcon</Text>
-                <Text style={styles.feesEuroValue}>≈ {btconToEuro(feeDetails?.adminFee ?? 0, btcPrice)}€</Text>
-              </View>
-            </View>
-
-            <View style={styles.feesDivider} />
-
-            <View style={styles.feesRow}>
               <Text style={styles.feesLeftLabel}>Taux réseau</Text>
               <View style={styles.feesRightColumn}>
-                <Text style={styles.feesValueBig}>{feeDetails?.feeRate?.toFixed(2) ?? '0.00'} sat/vB</Text>
+                <Text style={styles.feesValueBig}>{feeDetails?.feeRate?.toFixed(2) ?? '...'} sat/vB</Text>
+              </View>
+            </View>
+
+            <View style={styles.feesDivider} />
+
+            <View style={styles.feesRow}>
+              <Text style={styles.feesLeftLabel}>Total à déduire</Text>
+              <View style={styles.feesRightColumn}>
+                <Text style={styles.feesValueBig}>{feeDetails?.totalDebit?.toLocaleString() ?? '...'} Btcon</Text>
+                <Text style={styles.feesEuroValue}>= {btconToEuro(feeDetails?.totalDebit ?? 0, btcPrice)}€</Text>
               </View>
             </View>
           </View>

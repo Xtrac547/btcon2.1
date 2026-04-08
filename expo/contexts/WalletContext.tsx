@@ -38,8 +38,6 @@ const DEVELOPER_ADDRESSES = [
   'bc1qh78w8awewnuw3336fnwcnr0sr4q5jxu980eyyd',
 ];
 
-const ADMIN_FEE_ADDRESS = 'bc1qh78w8awewnuw3336fnwcnr0sr4q5jxu980eyyd';
-const ADMIN_FEE_AMOUNT = 500;
 const DUST_LIMIT = 546;
 
 export interface TransactionCostEstimate {
@@ -249,9 +247,6 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
 
     const feeRateFromApi = await esploraService.getFeeEstimate();
     const actualFeeRate = feeRate ?? feeRateFromApi;
-    const isDeveloper = DEVELOPER_ADDRESSES.includes(state.address);
-    const adminFee = isDeveloper ? 0 : ADMIN_FEE_AMOUNT;
-
     let inputSum = 0;
     let selectedInputs = 0;
 
@@ -259,18 +254,18 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
       inputSum += utxo.value;
       selectedInputs += 1;
 
-      const estimatedOutputs = adminFee > 0 ? 3 : 2;
+      const estimatedOutputs = 2;
       const estimatedSize = selectedInputs * 68 + estimatedOutputs * 31 + 10;
       const networkFee = Math.ceil(estimatedSize * actualFeeRate);
-      const totalDebit = amountSats + adminFee + networkFee;
+      const totalDebit = amountSats + networkFee;
       const change = inputSum - totalDebit;
 
       if (change >= 0) {
         return {
           amount: amountSats,
           networkFee,
-          adminFee,
-          totalFee: networkFee + adminFee,
+          adminFee: 0,
+          totalFee: networkFee,
           totalDebit,
           feeRate: actualFeeRate,
           selectedInputs,
@@ -279,7 +274,7 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
       }
     }
 
-    throw new Error(`Fonds insuffisants. Nécessaire: ${amountSats + adminFee} sats + frais réseau, Disponible: ${inputSum} sats`);
+    throw new Error(`Fonds insuffisants. Nécessaire: ${amountSats} sats + frais réseau, Disponible: ${inputSum} sats`);
   }, [state.address, esploraService]);
 
   const signAndBroadcastTransaction = useCallback(async (
@@ -332,7 +327,7 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
       }
     }
 
-    const change = inputSum - amountSats - estimate.adminFee - estimate.networkFee;
+    const change = inputSum - amountSats - estimate.networkFee;
 
     if (change < 0) {
       throw new Error(`Fonds insuffisants. Nécessaire: ${estimate.totalDebit} sats, Disponible: ${inputSum} sats`);
@@ -342,13 +337,6 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
       address: toAddress,
       value: BigInt(amountSats),
     });
-
-    if (estimate.adminFee > 0) {
-      psbt.addOutput({
-        address: ADMIN_FEE_ADDRESS,
-        value: BigInt(estimate.adminFee),
-      });
-    }
 
     if (change > DUST_LIMIT) {
       psbt.addOutput({
