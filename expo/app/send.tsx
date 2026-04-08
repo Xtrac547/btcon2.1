@@ -207,7 +207,7 @@ export default function SendScreen() {
 
     Alert.alert(
       'Confirmer la transaction',
-      `Destinataire: ${resolvedAddress.slice(0, 12)}...${resolvedAddress.slice(-6)}\n\nMontant: ${satsAmount.toLocaleString()} sats\n\nFrais réseau: ${feeDetails.networkFee.toLocaleString()} sats\n= ${feeBtc} BTC ≈ ${feeEur}€\nTaux: ${feeDetails.feeRate} sat/vB | ${feeDetails.vSize} vB\n\nTotal débité: ${feeDetails.totalDebit.toLocaleString()} sats\n= ${totalBtc} BTC ≈ ${totalEur}€`,
+      `Destinataire: ${resolvedAddress.slice(0, 12)}...${resolvedAddress.slice(-6)}\n\nMontant: ${(satsAmount / 100_000_000).toFixed(8)} Btcon\n\nFrais réseau: ${feeBtc} Btcon ≈ ${feeEur}€\nTaux: ${feeDetails.feeRate} sat/vB | ${feeDetails.vSize} vB\n\nTotal débité: ${totalBtc} Btcon ≈ ${totalEur}€`,
       [
         { text: 'Annuler', style: 'cancel' },
         {
@@ -498,7 +498,7 @@ export default function SendScreen() {
               <View style={styles.insufficientWarning}>
                 <AlertTriangle color="#FF4444" size={14} />
                 <Text style={styles.insufficientText}>
-                  Fonds insuffisants (manque {(feeDetails.totalDebit - balance).toLocaleString()} sats)
+                  Fonds insuffisants (manque {((feeDetails.totalDebit - balance) / 100_000_000).toFixed(8)} Btcon)
                 </Text>
               </View>
             )}
