@@ -126,7 +126,19 @@ export const useBtcPrice = () => {
 export const btconToEuro = (btcon: number, btcPrice: number = cachedPrice): string => {
   const btc = btcon / 100000000;
   const euro = btc * btcPrice;
-  return euro.toFixed(2);
+  if (euro >= 1000) {
+    return euro.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  if (euro >= 1) {
+    return euro.toFixed(2);
+  }
+  if (euro >= 0.01) {
+    return euro.toFixed(4);
+  }
+  if (euro >= 0.0001) {
+    return euro.toFixed(6);
+  }
+  return euro.toFixed(8);
 };
 
 export const formatBtconWithEuro = (btcon: number, btcPrice: number = cachedPrice): string => {
