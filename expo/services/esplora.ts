@@ -196,4 +196,49 @@ export class EsploraService {
     const baseUrl = this.baseUrls[0] ?? (this.isTestnet ? 'https://blockstream.info/testnet/api' : 'https://blockstream.info/api');
     return baseUrl.replace('/api', '') + `/address/${address}`;
   }
+
+  async getRecommendedFees(): Promise<{ fastestFee: number; halfHourFee: number; hourFee: number; minimumFee: number }> {
+    const mempoolBase = this.isTestnet
+      ? 'https://mempool.space/testnet/api'
+      : 'https://mempool.space/api';
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      const url = `${mempoolBase}/v1/fees/recommended`;
+      console.log('[Fees] Fetching recommended fees from:', url);
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Mempool fees request failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('[Fees] Recommended fees:', data);
+      return {
+        fastestFee: data.fastestFee ?? 25,
+        halfHourFee: data.halfHourFee ?? 20,
+        hourFee: data.hourFee ?? 15,
+        minimumFee: data.minimumFee ?? 1,
+      };
+    } catch (error) {
+      console.error('[Fees] Error fetching recommended fees:', error);
+      const fallbackRate = await this.getFeeEstimate();
+      return {
+        fastestFee: fallbackRate * 2,
+        halfHourFee: fallbackRate,
+        hourFee: Math.max(1, Math.floor(fallbackRate * 0.7)),
+        minimumFee: 1,
+      };
+    }
+  }
+
+  estimateFeesFromRate(feeRate: number, numInputs: number = 1, numOutputs: number = 2): { feeSats: number; feeBtc: number; txSize: number } {
+    const txSize = numInputs * 68 + numOutputs * 31 + 10;
+    const feeSats = Math.ceil(txSize * feeRate);
+    const feeBtc = feeSats / 100_000_000;
+    console.log(`[Fees] Estimated: ${txSize} vB × ${feeRate} sat/vB = ${feeSats} sats (${feeBtc} BTC)`);
+    return { feeSats, feeBtc, txSize };
+  }
 }

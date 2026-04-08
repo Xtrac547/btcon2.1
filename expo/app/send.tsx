@@ -42,35 +42,55 @@ export default function SendScreen() {
 
   useEffect(() => {
     const updateFees = async () => {
-      if (totalAmount <= 0 || !address) {
+      if (totalAmount <= 0) {
         setFeeDetails(null);
         return;
       }
 
       setIsEstimatingFees(true);
+      let success = false;
+
       try {
-        const estimate = await estimateTransactionCosts(Math.floor(totalAmount));
-        setFeeDetails({
-          networkFee: estimate.networkFee,
-          totalFee: estimate.totalFee,
-          totalDebit: estimate.totalDebit,
-          feeRate: estimate.feeRate,
-        });
+        if (address) {
+          const estimate = await estimateTransactionCosts(Math.floor(totalAmount));
+          setFeeDetails({
+            networkFee: estimate.networkFee,
+            totalFee: estimate.totalFee,
+            totalDebit: estimate.totalDebit,
+            feeRate: estimate.feeRate,
+          });
+          success = true;
+        }
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : String(error);
-        if (msg.includes('No UTXOs available')) {
-          console.log('No confirmed UTXOs yet - wallet may be empty or pending confirmation');
-        } else {
-          console.error('Error estimating fees:', error);
-        }
-        setFeeDetails(null);
-      } finally {
-        setIsEstimatingFees(false);
+        console.log('[Fees] UTXO-based estimation failed:', msg);
       }
+
+      if (!success) {
+        try {
+          console.log('[Fees] Using mempool.space recommended fees fallback');
+          const recommended = await esploraService.getRecommendedFees();
+          const feeRate = recommended.halfHourFee;
+          const { feeSats } = esploraService.estimateFeesFromRate(feeRate, 1, 2);
+          const totalDebit = Math.floor(totalAmount) + feeSats;
+
+          setFeeDetails({
+            networkFee: feeSats,
+            totalFee: feeSats,
+            totalDebit,
+            feeRate,
+          });
+        } catch (fallbackError) {
+          console.error('[Fees] All fee estimation failed:', fallbackError);
+          setFeeDetails(null);
+        }
+      }
+
+      setIsEstimatingFees(false);
     };
 
     void updateFees();
-  }, [totalAmount, address, estimateTransactionCosts]);
+  }, [totalAmount, address, estimateTransactionCosts, esploraService]);
 
   const handleSend = async () => {
     const input = toAddress.trim();
